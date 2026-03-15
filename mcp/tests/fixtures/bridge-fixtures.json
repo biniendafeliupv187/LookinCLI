@@ -1,0 +1,70 @@
+{
+  "connectionResponse": {
+    "base64": "YnBsaXN0MDDUAQIDBAUGBwpYJHZlcnNpb25ZJGFyY2hpdmVyVCR0b3BYJG9iamVjdHMSAAGGoF8QD05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGkCwwdHlUkbnVsbNgNDg8QERITFBUWFxgZGhUYXxAQY3VycmVudERhdGFDb3VudF8QE2xvb2tpblNlcnZlclZlcnNpb25WJGNsYXNzUTBfEBFhcHBJc0luQmFja2dyb3VuZFExXmRhdGFUb3RhbENvdW50VWVycm9ygAIQB4ADgAAIEACAAoAAEAHSHyAhIlokY2xhc3NuYW1lWCRjbGFzc2VzXxAiTG9va2luQ29ubmVjdGlvblJlc3BvbnNlQXR0YWNobWVudKMjJCVfECJMb29raW5Db25uZWN0aW9uUmVzcG9uc2VBdHRhY2htZW50XxAaTG9va2luQ29ubmVjdGlvbkF0dGFjaG1lbnRYTlNPYmplY3QACAARABoAJAApADIANwBJAEwAUQBTAFgAXgBvAIIAmACfAKEAtQC3AMYAzADOANAA0gDUANUA1wDZANsA3QDiAO0A9gEbAR8BRAFhAAAAAAAAAgEAAAAAAAAAJgAAAAAAAAAAAAAAAAAAAWo=",
+    "expected": {
+      "$class": "LookinConnectionResponseAttachment",
+      "lookinServerVersion": 7,
+      "appIsInBackground": false,
+      "dataTotalCount": 1,
+      "currentDataCount": 1,
+      "dataType": 0
+    }
+  },
+  "connectionAttachment": {
+    "base64": "YnBsaXN0MDDUAQIDBAUGBwpYJHZlcnNpb25ZJGFyY2hpdmVyVCR0b3BYJG9iamVjdHMSAAGGoF8QD05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGkCwwTFFUkbnVsbNMNDg8QERJRMFExViRjbGFzc4ACEACAA1VoZWxsb9IVFhcYWiRjbGFzc25hbWVYJGNsYXNzZXNfEBpMb29raW5Db25uZWN0aW9uQXR0YWNobWVudKIZGl8QGkxvb2tpbkNvbm5lY3Rpb25BdHRhY2htZW50WE5TT2JqZWN0CBEaJCkyN0lMUVNYXmVnaXBydHZ8gYyVsrXSAAAAAAAAAQEAAAAAAAAAGwAAAAAAAAAAAAAAAAAAANs=",
+    "expected": {
+      "$class": "LookinConnectionAttachment",
+      "dataType": 0,
+      "data": "hello"
+    }
+  },
+  "hierarchyInfo": {
+    "base64": "YnBsaXN0MDDUAQIDBAUGBwpYJHZlcnNpb25ZJGFyY2hpdmVyVCR0b3BYJG9iamVjdHMSAAGGoF8QD05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGrCwwZHSM8PT4/QERVJG51bGzWDQ4PEBESExQUFhcYUTNRMVE0UTJdc2VydmVyVmVyc2lvblYkY2xhc3OAAIACgAKABBAHgArSGhIbHFpOUy5vYmplY3RzoIAD0h4fICFaJGNsYXNzbmFtZVgkY2xhc3Nlc1dOU0FycmF5oiAiWE5TT2JqZWN03xAREA0kJQ8mJxIoKSorESwtLg4TMDEyMzQTNjE3ODEXMjk6E1tzY3JlZW5TY2FsZV8QEWFwcEluZm9JZGVudGlmaWVyUTVfEBVzZXJ2ZXJSZWFkYWJsZVZlcnNpb25RNl1vc01haW5WZXJzaW9uXnNob3VsZFVzZUNhY2hlUTdROF8QGnN3aWZ0RW5hYmxlZEluTG9va2luU2VydmVyXxATYXBwQnVuZGxlSWRlbnRpZmllcoAAgAcjAAAAAAAAAAAQAIAIgAWAAIAJEBIIEACABoAAV1Rlc3RBcHBcY29tLnRlc3QuYXBwXWlQaG9uZSAxNSBQcm9YaU9TIDE4LjDSHh9BQl1Mb29raW5BcHBJbmZvokMiXUxvb2tpbkFwcEluZm/SHh9FRl8QE0xvb2tpbkhpZXJhcmNoeUluZm+iRyJfEBNMb29raW5IaWVyYXJjaHlJbmZvAAgAEQAaACQAKQAyADcASQBMAFEAUwBfAGUAcgB0AHYAeAB6AIgAjwCRAJMAlQCXAJkAmwCgAKsArACuALMAvgDHAM8A0gDbAQABDAEgASIBOgE8AUoBWQFbAV0BegGQAZIBlAGdAZ8BoQGjAaUBpwGpAaoBrAGuAbABuAHFAdMB3AHhAe8B8gIAAgUCGwIeAAAAAAAAAgEAAAAAAAAASAAAAAAAAAAAAAAAAAAAAjQ=",
+    "expected": {
+      "$class": "LookinHierarchyInfo",
+      "serverVersion": 7,
+      "appInfo": {
+        "$class": "LookinAppInfo",
+        "appName": "TestApp",
+        "appBundleIdentifier": "com.test.app",
+        "deviceDescription": "iPhone 15 Pro",
+        "osDescription": "iOS 18.0"
+      },
+      "displayItems": []
+    }
+  },
+  "hierarchyResponse": {
+    "base64": "YnBsaXN0MDDUAQIDBAUGBwpYJHZlcnNpb25ZJGFyY2hpdmVyVCR0b3BYJG9iamVjdHMSAAGGoF8QD05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGvECMLDB0nLFBUZnJzdHh5f4OEhYmQkZKZmn6bnJ2guLm6u7zAxFUkbnVsbNgNDg8QERITFBUWFxgZGhUcXxAQY3VycmVudERhdGFDb3VudF8QE2xvb2tpblNlcnZlclZlcnNpb25WJGNsYXNzUTBfEBFhcHBJc0luQmFja2dyb3VuZFExXmRhdGFUb3RhbENvdW50VWVycm9ygBIQB4AigAIIEACAEoAA1h4SHyAhDxwjJCUWJlEzUTRRMl1zZXJ2ZXJWZXJzaW9ugACAA4AagBuAIdIoDykrWk5TLm9iamVjdHOhKoAEgAzfEBItLi8wMTIzNA81Njc4OTo7PD0cPxxBHBwcRUYcSBwZHEwcGU9dZXZlbnRIYW5kbGVyc1hzdWJpdGVtc1pjdXN0b21JbmZvVWZyYW1lW2xheWVyT2JqZWN0XxAPYmFja2dyb3VuZENvbG9yXxASY3VzdG9tRGlzcGxheVRpdGxlXxAWcmVwcmVzZW50ZWRBc0tleVdpbmRvd18QE2N1c3RvbUF0dHJHcm91cExpc3RVYWxwaGFfEBNhdHRyaWJ1dGVzR3JvdXBMaXN0VmhpZGRlbl8QGGhvc3RWaWV3Q29udHJvbGxlck9iamVjdFp2aWV3T2JqZWN0XWRhbmNldWlTb3VyY2VfEBJzaG91bGRDYXB0dXJlSW1hZ2VWYm91bmRzgACABYAAgBiAAIAAgAAJgBCAACI/gAAAgAAIgACAEYAACIAZ0igPUSuhUoAGgAzfEBItLi8wMTIzNA81Njc4OTo7PD0cHBxYHBwcGUYcSBwZHGIcGWWAAIAAgACADoAAgACAAAiAEIAAgAAIgACAB4AACIAP1mdoaWprD2xtHG8ccV5jbGFzc0NoYWluTGlzdF1tZW1vcnlBZGRyZXNzXHNwZWNpYWxUcmFjZVNvaWRaaXZhclRyYWNlc4AKgAmAAIAIgACADRACVjB4MTAwMtIoD3UroXaAC4AMVlVJVmlld9J6e3x9WiRjbGFzc25hbWVYJGNsYXNzZXNXTlNBcnJheaJ8flhOU09iamVjdNJ6e4CBXExvb2tpbk9iamVjdKKCflxMb29raW5PYmplY3RfEBR7ezAsIDB9LCB7MzkwLCA4NDR9fV8QFHt7MCwgMH0sIHszOTAsIDg0NH190np7hodfEBFMb29raW5EaXNwbGF5SXRlbaKIfl8QEUxvb2tpbkRpc3BsYXlJdGVt1mdoaWprD4qLHBUccYAUgBOAAIASgACADRABVjB4MTAwMdIoD5MrpJR2lpeAFYALgBaAF4AMWFVJV2luZG93W1VJUmVzcG9uZGVyXxAUe3swLCAwfSwgezM5MCwgODQ0fX1fEBR7ezAsIDB9LCB7MzkwLCA4NDR9fdIoD54roIAM3xARIB6hoh+jpA+lpqeoIamqqxIcra4ar7Acsq6zGa4WGrW2HFtzY3JlZW5TY2FsZV8QEWFwcEluZm9JZGVudGlmaWVyUTVfEBVzZXJ2ZXJSZWFkYWJsZVZlcnNpb25RNl1vc01haW5WZXJzaW9uXnNob3VsZFVzZUNhY2hlUTdROF8QGnN3aWZ0RW5hYmxlZEluTG9va2luU2VydmVyXxATYXBwQnVuZGxlSWRlbnRpZmllcoAAgB4jAAAAAAAAAACAH4AcgACAIBASCBAAgB2AAFdUZXN0QXBwXGNvbS50ZXN0LmFwcF1pUGhvbmUgMTUgUHJvWGlPUyAxOC4w0np7vb5dTG9va2luQXBwSW5mb6K/fl1Mb29raW5BcHBJbmZv0np7wcJfEBNMb29raW5IaWVyYXJjaHlJbmZvosN+XxATTG9va2luSGllcmFyY2h5SW5mb9J6e8XGXxAiTG9va2luQ29ubmVjdGlvblJlc3BvbnNlQXR0YWNobWVudKPHyH5fECJMb29raW5Db25uZWN0aW9uUmVzcG9uc2VBdHRhY2htZW50XxAaTG9va2luQ29ubmVjdGlvbkF0dGFjaG1lbnQACAARABoAJAApADIANwBJAEwAUQBTAHkAfwCQAKMAuQDAAMIA1gDYAOcA7QDvAPEA8wD1APYA+AD6APwBCQELAQ0BDwEdAR8BIQEjASUBJwEsATcBOQE7AT0BZAFyAXsBhgGMAZgBqgG/AdgB7gH0AgoCEQIsAjcCRQJaAmECYwJlAmcCaQJrAm0CbwJwAnICdAJ5AnsCfAJ+AoACggKDAoUCigKMAo4CkAK3ArkCuwK9Ar8CwQLDAsUCxgLIAsoCzALNAs8C0QLTAtQC1gLjAvIDAAMNAxEDHAMeAyADIgMkAyYDKAMqAzEDNgM4AzoDPANDA0gDUwNcA2QDZwNwA3UDggOFA5IDqQPAA8UD2QPcA/AD/QP/BAEEAwQFBAcECQQLBBIEFwQcBB4EIAQiBCQEJgQvBDsEUgRpBG4EbwRxBJYEogS2BLgE0ATSBOAE7wTxBPMFEAUmBSgFKgUzBTUFNwU5BTsFPQU+BUAFQgVEBUwFWQVnBXAFdQWDBYYFlAWZBa8FsgXIBc0F8gX2BhsAAAAAAAACAQAAAAAAAADJAAAAAAAAAAAAAAAAAAAGOA==",
+    "expected": {
+      "$class": "LookinConnectionResponseAttachment",
+      "data": {
+        "$class": "LookinHierarchyInfo",
+        "appInfo": {
+          "$class": "LookinAppInfo",
+          "appBundleIdentifier": "com.test.app",
+          "appName": "TestApp"
+        },
+        "displayItems": [
+          {
+            "$class": "LookinDisplayItem",
+            "subitems": [
+              {
+                "$class": "LookinDisplayItem",
+                "viewObject": {
+                  "$class": "LookinObject",
+                  "oid": 2
+                }
+              }
+            ],
+            "viewObject": {
+              "$class": "LookinObject",
+              "oid": 1
+            }
+          }
+        ],
+        "serverVersion": 7
+      },
+      "lookinServerVersion": 7
+    }
+  }
+}

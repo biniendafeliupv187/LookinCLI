@@ -1,53 +1,53 @@
 ## 1. Project Scaffolding
 
-- [ ] 1.1 Create `LookinMCP/` directory with TypeScript project (`package.json`, `tsconfig.json`, `.gitignore`) and install `@modelcontextprotocol/sdk`, `vitest` dev dependency
-- [ ] 1.2 Create Swift Bridge package (`LookinMCP/bridge/Package.swift`) that imports LookinServer Shared sources, verify `swift build` compiles successfully
-- [ ] 1.3 Add npm scripts: `build`, `test`, `dev`; add top-level `Makefile` or shell script to build both TS + Swift in one command
+- [x] 1.1 Create `LookinMCP/` directory with TypeScript project (`package.json`, `tsconfig.json`, `.gitignore`) and install `@modelcontextprotocol/sdk`, `vitest` dev dependency
+- [x] 1.2 Create Swift Bridge package (`LookinMCP/bridge/Package.swift`) that imports LookinServer Shared sources, verify `swift build` compiles successfully
+- [x] 1.3 Add npm scripts: `build`, `test`, `dev`; add top-level `Makefile` or shell script to build both TS + Swift in one command
 
 ## 2. Swift Bridge CLI — Encode / Decode (TDD)
 
-- [ ] 2.1 Write tests: bridge CLI accepts `decode <base64>` and returns JSON; accepts `encode <json> --model <ModelClass>` and returns base64; exits non-zero on invalid input
-- [ ] 2.2 Implement `lookin-bridge decode` subcommand: read base64 stdin/arg → NSKeyedUnarchiver → JSON stdout, reusing Shared model classes
-- [ ] 2.3 Implement `lookin-bridge encode` subcommand: read JSON stdin/arg → NSKeyedArchiver → base64 stdout, reusing Shared model classes
-- [ ] 2.4 Add round-trip integration test: encode then decode a `LookinConnectionAttachment` object and assert JSON equality
+- [x] 2.1 Write tests: bridge CLI accepts `decode <base64>` and returns JSON; accepts `encode <json> --model <ModelClass>` and returns base64; exits non-zero on invalid input
+- [x] 2.2 Implement `lookin-bridge decode` subcommand: read base64 stdin/arg → NSKeyedUnarchiver → JSON stdout, reusing Shared model classes
+- [x] 2.3 Implement `lookin-bridge encode` subcommand: read JSON stdin/arg → NSKeyedArchiver → base64 stdout, reusing Shared model classes
+- [x] 2.4 Add round-trip integration test: encode then decode a `LookinConnectionAttachment` object and assert JSON equality
 
 ## 3. Peertalk Transport Layer (TDD)
 
-- [ ] 3.1 Write tests: frame encoder produces correct 16-byte Big-Endian header + payload; frame decoder parses header and extracts payload from stream buffer
-- [ ] 3.2 Implement `FrameEncoder`: given (type, tag, payload) → Buffer with 16-byte header
-- [ ] 3.3 Implement `FrameDecoder`: streaming TCP data → parsed frames; handle partial reads and multi-frame aggregation
-- [ ] 3.4 Write tests: request-response correlator matches response frame to pending request by type+tag; timeout fires after configured duration
-- [ ] 3.5 Implement `RequestCorrelator`: send request with tag, resolve/reject matching Promise on response or timeout
-- [ ] 3.6 Write tests: streamed response aggregation waits for currentCount == totalCount before resolving
-- [ ] 3.7 Implement streamed response aggregation in correlator for multi-frame detail responses (Type 210 partial chunks)
+- [x] 3.1 Write tests: frame encoder produces correct 16-byte Big-Endian header + payload; frame decoder parses header and extracts payload from stream buffer
+- [x] 3.2 Implement `FrameEncoder`: given (type, tag, payload) → Buffer with 16-byte header
+- [x] 3.3 Implement `FrameDecoder`: streaming TCP data → parsed frames; handle partial reads and multi-frame aggregation
+- [x] 3.4 Write tests: request-response correlator matches response frame to pending request by type+tag; timeout fires after configured duration
+- [x] 3.5 Implement `RequestCorrelator`: send request with tag, resolve/reject matching Promise on response or timeout
+- [x] 3.6 Write tests: streamed response aggregation waits for currentCount == totalCount before resolving
+- [x] 3.7 Implement streamed response aggregation in correlator for multi-frame detail responses (Type 210 partial chunks)
 
 ## 4. Device Endpoint Abstraction (TDD)
 
-- [ ] 4.1 Write tests: `USBMuxEndpointProvider` lists connected USB devices and returns candidate endpoints with ports 47175-47179
-- [ ] 4.2 Implement `USBMuxEndpointProvider`: invoke `idevice_id -l` or usbmuxd socket to enumerate USB device IDs, produce `DeviceEndpoint[]`
-- [ ] 4.3 Write tests: `SimulatorEndpointProvider` returns localhost endpoints with ports 47164-47169
-- [ ] 4.4 Implement `SimulatorEndpointProvider`: produce localhost `DeviceEndpoint[]` for simulator port range
-- [ ] 4.5 Write tests: composite discovery returns USB endpoints first, simulator endpoints second
-- [ ] 4.6 Implement `DeviceDiscovery` composite: merge USB-first + simulator, ping each endpoint, filter by protocol version compatibility
+- [x] 4.1 Write tests: `USBMuxEndpointProvider` lists connected USB devices and returns candidate endpoints with ports 47175-47179
+- [x] 4.2 Implement `USBMuxEndpointProvider`: invoke `idevice_id -l` or usbmuxd socket to enumerate USB device IDs, produce `DeviceEndpoint[]`
+- [x] 4.3 Write tests: `SimulatorEndpointProvider` returns localhost endpoints with ports 47164-47169
+- [x] 4.4 Implement `SimulatorEndpointProvider`: produce localhost `DeviceEndpoint[]` for simulator port range
+- [x] 4.5 Write tests: composite discovery returns USB endpoints first, simulator endpoints second
+- [x] 4.6 Implement `DeviceDiscovery` composite: merge USB-first + simulator, ping each endpoint, filter by protocol version compatibility
 
 ## 5. End-to-End Vertical Slice: `status` Tool (TDD)
 
-- [ ] 5.1 Write integration test: MCP Server exposes `status` tool; calling it with a mock transport returns connection health, transport type, protocol version, app background state
-- [ ] 5.2 Implement `AppSession`: manages TCP socket lifecycle, tag generator, pending requests map; exposes `ping()` method that sends Type 200 and decodes `LookinConnectionAttachment` via bridge
-- [ ] 5.3 Implement `status` MCP tool handler: discover endpoint → create/reuse AppSession → ping → decode attachment → return structured status JSON with connection health, transport type, protocol version, background flag
-- [ ] 5.4 Wire up MCP Server entry point (`src/index.ts`): register `status` tool with `@modelcontextprotocol/sdk`, configure stdio transport
-- [ ] 5.5 Manual smoke test: connect to a real iOS app (USB or simulator), run `status`, verify JSON output
+- [x] 5.1 Write integration test: MCP Server exposes `status` tool; calling it with a mock transport returns connection health, transport type, protocol version, app background state
+- [x] 5.2 Implement `AppSession`: manages TCP socket lifecycle, tag generator, pending requests map; exposes `ping()` method that sends Type 200 and decodes `LookinConnectionAttachment` via bridge
+- [x] 5.3 Implement `status` MCP tool handler: discover endpoint → create/reuse AppSession → ping → decode attachment → return structured status JSON with connection health, transport type, protocol version, background flag
+- [x] 5.4 Wire up MCP Server entry point (`src/index.ts`): register `status` tool with `@modelcontextprotocol/sdk`, configure stdio transport
+- [x] 5.5 Manual smoke test: connect to a real iOS app (USB or simulator), run `status`, verify JSON output
 
 ## 6. Hierarchy Inspection Tools (TDD)
 
-- [ ] 6.1 Write tests: `get_hierarchy` returns normalized tree with oid, className, frame, visibility, alpha, children; verifies Type 202 request encoding and response decoding through bridge
-- [ ] 6.2 Implement `get_hierarchy` tool handler: send Type 202 via AppSession → decode hierarchy via bridge → normalize to tool response schema
-- [ ] 6.3 Write tests: `search` filters hierarchy by className and displayText, returns matching nodes with parent context
-- [ ] 6.4 Implement `search` tool handler: build search index from cached hierarchy, match by className / text / address, return results
-- [ ] 6.5 Write tests: `list_view_controllers` extracts unique VCs from hierarchy tree
-- [ ] 6.6 Implement `list_view_controllers` tool handler: walk hierarchy tree, collect nodes with `representedAsKeyWindow` / `hostViewController` properties, return deduplicated VC list
-- [ ] 6.7 Write tests: `reload` clears cache and returns fresh hierarchy
-- [ ] 6.8 Implement `reload` tool handler: invalidate hierarchy/view/search cache for current app → re-request Type 202 → return new hierarchy summary
+- [x] 6.1 Write tests: `get_hierarchy` returns normalized tree with oid, className, frame, visibility, alpha, children; verifies Type 202 request encoding and response decoding through bridge
+- [x] 6.2 Implement `get_hierarchy` tool handler: send Type 202 via AppSession → decode hierarchy via bridge → normalize to tool response schema
+- [x] 6.3 Write tests: `search` filters hierarchy by className and displayText, returns matching nodes with parent context
+- [x] 6.4 Implement `search` tool handler: build search index from cached hierarchy, match by className / text / address, return results
+- [x] 6.5 Write tests: `list_view_controllers` extracts unique VCs from hierarchy tree
+- [x] 6.6 Implement `list_view_controllers` tool handler: walk hierarchy tree, collect nodes with `representedAsKeyWindow` / `hostViewController` properties, return deduplicated VC list
+- [x] 6.7 Write tests: `reload` clears cache and returns fresh hierarchy
+- [x] 6.8 Implement `reload` tool handler: invalidate hierarchy/view/search cache for current app → re-request Type 202 → return new hierarchy summary
 
 ## 7. View Inspection Tools (TDD)
 

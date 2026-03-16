@@ -85,6 +85,10 @@ struct LookinBridgeCLI {
             obj = jsonToConnectionAttachment(json)
         case "LookinConnectionResponseAttachment":
             obj = jsonToConnectionResponseAttachment(json)
+        case "LookinStaticAsyncUpdateTask":
+            obj = jsonToStaticAsyncUpdateTask(json)
+        case "LookinStaticAsyncUpdateTasksPackage":
+            obj = jsonToStaticAsyncUpdateTasksPackage(json)
         default:
             fputs("Error: unsupported model class '\(modelClass)'\n", stderr)
             exit(1)
@@ -106,8 +110,45 @@ struct LookinBridgeCLI {
         if let raw = json["dataType"] as? Int, let dt = LookinCodingValueType(rawValue: raw) {
             a.dataType = dt
         }
-        if let data = json["data"] { a.data = data as AnyObject }
+        if let data = json["data"] { a.data = convertJSONData(data) as AnyObject }
         return a
+    }
+
+    /// Recursively convert JSON data to model objects when $class markers are present.
+    static func convertJSONData(_ value: Any) -> Any {
+        if let arr = value as? [[String: Any]] {
+            // Array of objects — convert each element
+            return arr.map { convertJSONData($0) } as NSArray
+        }
+        if let dict = value as? [String: Any], let cls = dict["$class"] as? String {
+            switch cls {
+            case "LookinStaticAsyncUpdateTasksPackage":
+                return jsonToStaticAsyncUpdateTasksPackage(dict)
+            case "LookinStaticAsyncUpdateTask":
+                return jsonToStaticAsyncUpdateTask(dict)
+            default:
+                return dict as NSDictionary
+            }
+        }
+        return value
+    }
+
+    static func jsonToStaticAsyncUpdateTask(_ json: [String: Any]) -> LookinStaticAsyncUpdateTask {
+        let t = LookinStaticAsyncUpdateTask()
+        if let oid = json["oid"] as? Int { t.oid = UInt(oid) }
+        if let raw = json["taskType"] as? Int, let tt = LookinStaticAsyncUpdateTaskType(rawValue: raw) { t.taskType = tt }
+        if let raw = json["attrRequest"] as? Int, let ar = LookinDetailUpdateTaskAttrRequest(rawValue: raw) { t.attrRequest = ar }
+        if let v = json["needBasisVisualInfo"] as? Bool { t.needBasisVisualInfo = v }
+        if let v = json["needSubitems"] as? Bool { t.needSubitems = v }
+        return t
+    }
+
+    static func jsonToStaticAsyncUpdateTasksPackage(_ json: [String: Any]) -> LookinStaticAsyncUpdateTasksPackage {
+        let p = LookinStaticAsyncUpdateTasksPackage()
+        if let tasksJSON = json["tasks"] as? [[String: Any]] {
+            p.tasks = tasksJSON.map { jsonToStaticAsyncUpdateTask($0) }
+        }
+        return p
     }
 
     static func jsonToConnectionResponseAttachment(_ json: [String: Any]) -> LookinConnectionResponseAttachment {
@@ -128,7 +169,7 @@ struct LookinBridgeCLI {
     static func handleGenerateFixture() {
         guard CommandLine.arguments.count >= 3 else {
             fputs("Usage: lookin-bridge generate-fixture <fixture-name>\n", stderr)
-            fputs("Available: connection-response, connection-attachment, hierarchy-info, hierarchy-response\n", stderr)
+            fputs("Available: connection-response, connection-attachment, hierarchy-info, hierarchy-response, hierarchy-response-with-vc\n", stderr)
             exit(1)
         }
         let fixtureName = CommandLine.arguments[2]
@@ -260,8 +301,192 @@ struct LookinBridgeCLI {
                     ],
                 ] as [String : Any],
             ]
+        case "hierarchy-response-with-vc":
+            // Hierarchy with ViewController associations: UIWindow → UIView (MainVC) → UITableView
+            let vcTableView = LookinDisplayItem()
+            let vcTableViewObj = LookinObject()
+            vcTableViewObj.oid = 3
+            vcTableViewObj.classChainList = ["UITableView", "UIScrollView", "UIView"]
+            vcTableViewObj.memoryAddress = "0x2003"
+            vcTableView.viewObject = vcTableViewObj
+            vcTableView.frame = CGRect(x: 0, y: 44, width: 390, height: 800)
+            vcTableView.bounds = CGRect(x: 0, y: 0, width: 390, height: 800)
+            vcTableView.isHidden = false
+            vcTableView.alpha = 1.0
+
+            let vcContentView = LookinDisplayItem()
+            let vcContentViewObj = LookinObject()
+            vcContentViewObj.oid = 2
+            vcContentViewObj.classChainList = ["UIView"]
+            vcContentViewObj.memoryAddress = "0x2002"
+            vcContentView.viewObject = vcContentViewObj
+            vcContentView.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            vcContentView.bounds = CGRect(x: 0, y: 0, width: 390, height: 844)
+            vcContentView.isHidden = false
+            vcContentView.alpha = 1.0
+            // Associate with a ViewController
+            let mainVCObj = LookinObject()
+            mainVCObj.oid = 100
+            mainVCObj.classChainList = ["MainViewController", "UIViewController", "UIResponder", "NSObject"]
+            mainVCObj.memoryAddress = "0x3001"
+            vcContentView.hostViewControllerObject = mainVCObj
+            vcContentView.subitems = [vcTableView]
+
+            let vcRootItem = LookinDisplayItem()
+            let vcRootViewObj = LookinObject()
+            vcRootViewObj.oid = 1
+            vcRootViewObj.classChainList = ["UIWindow", "UIView", "UIResponder", "NSObject"]
+            vcRootViewObj.memoryAddress = "0x2001"
+            vcRootItem.viewObject = vcRootViewObj
+            vcRootItem.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            vcRootItem.bounds = CGRect(x: 0, y: 0, width: 390, height: 844)
+            vcRootItem.isHidden = false
+            vcRootItem.alpha = 1.0
+            vcRootItem.representedAsKeyWindow = true
+            vcRootItem.subitems = [vcContentView]
+
+            let vcAppInfo = LookinAppInfo()
+            vcAppInfo.appName = "TestApp"
+            vcAppInfo.appBundleIdentifier = "com.test.app"
+            vcAppInfo.deviceDescription = "iPhone 15 Pro"
+            vcAppInfo.osDescription = "iOS 18.0"
+            vcAppInfo.osMainVersion = 18
+            vcAppInfo.serverVersion = 7
+            vcAppInfo.deviceType = .simulator
+
+            let vcHInfo = LookinHierarchyInfo()
+            vcHInfo.serverVersion = 7
+            vcHInfo.appInfo = vcAppInfo
+            vcHInfo.displayItems = [vcRootItem]
+            vcHInfo.collapsedClassList = []
+
+            let vcResp = LookinConnectionResponseAttachment()
+            vcResp.lookinServerVersion = 7
+            vcResp.appIsInBackground = false
+            vcResp.dataTotalCount = 1
+            vcResp.currentDataCount = 1
+            vcResp.dataType = .init(rawValue: 0)!
+            vcResp.data = vcHInfo
+            obj = vcResp
+            expectedJSON = [
+                "$class": "LookinConnectionResponseAttachment",
+                "lookinServerVersion": 7,
+                "data": [
+                    "$class": "LookinHierarchyInfo",
+                    "serverVersion": 7,
+                    "displayItems": [
+                        [
+                            "$class": "LookinDisplayItem",
+                            "viewObject": ["$class": "LookinObject", "oid": 1],
+                            "subitems": [
+                                [
+                                    "$class": "LookinDisplayItem",
+                                    "viewObject": ["$class": "LookinObject", "oid": 2],
+                                    "hostViewControllerObject": ["$class": "LookinObject", "oid": 100, "className": "MainViewController"],
+                                ],
+                            ],
+                        ],
+                    ],
+                ] as [String : Any],
+            ]
+
+        case "attr-groups-response":
+            // LookinConnectionResponseAttachment wrapping NSArray<LookinAttributesGroup>
+            let attr1 = LookinAttribute()
+            attr1.identifier = "UIView_Class"
+            attr1.value = "UILabel" as NSString
+
+            let attr2 = LookinAttribute()
+            attr2.identifier = "UIView_Frame"
+            attr2.value = NSValue(rect: NSRect(x: 10, y: 20, width: 200, height: 44))
+
+            let attr3 = LookinAttribute()
+            attr3.identifier = "UIView_Hidden"
+            attr3.value = NSNumber(value: false)
+
+            let attr4 = LookinAttribute()
+            attr4.identifier = "UIView_Alpha"
+            attr4.value = NSNumber(value: 1.0)
+
+            let section1 = LookinAttributesSection()
+            section1.identifier = "UIView_Section_0"
+            section1.attributes = [attr1, attr2]
+
+            let section2 = LookinAttributesSection()
+            section2.identifier = "UIView_Section_1"
+            section2.attributes = [attr3, attr4]
+
+            let group1 = LookinAttributesGroup()
+            group1.identifier = "UIView"
+            group1.attrSections = [section1, section2]
+
+            let attr5 = LookinAttribute()
+            attr5.identifier = "CALayer_CornerRadius"
+            attr5.value = NSNumber(value: 8.0)
+
+            let section3 = LookinAttributesSection()
+            section3.identifier = "CALayer_Section_0"
+            section3.attributes = [attr5]
+
+            let group2 = LookinAttributesGroup()
+            group2.identifier = "CALayer"
+            group2.attrSections = [section3]
+
+            let attrGroupList: NSArray = [group1, group2]
+
+            let attrResp = LookinConnectionResponseAttachment()
+            attrResp.lookinServerVersion = 7
+            attrResp.appIsInBackground = false
+            attrResp.dataTotalCount = 1
+            attrResp.currentDataCount = 1
+            attrResp.dataType = .init(rawValue: 0)!
+            attrResp.data = attrGroupList
+            obj = attrResp
+            expectedJSON = [
+                "$class": "LookinConnectionResponseAttachment",
+                "lookinServerVersion": 7,
+                "data": [
+                    ["$class": "LookinAttributesGroup", "identifier": "UIView"],
+                    ["$class": "LookinAttributesGroup", "identifier": "CALayer"],
+                ] as [[String: Any]],
+            ]
+
+        case "screenshot-response":
+            // LookinConnectionResponseAttachment wrapping NSArray<LookinDisplayItemDetail>
+            let detail = LookinDisplayItemDetail()
+            detail.displayItemOid = 42
+            detail.frameValue = NSValue(rect: NSRect(x: 10, y: 20, width: 200, height: 44))
+            detail.boundsValue = NSValue(rect: NSRect(x: 0, y: 0, width: 200, height: 44))
+            detail.hiddenValue = NSNumber(value: false)
+            detail.alphaValue = NSNumber(value: 1.0)
+            // Create a tiny 2x2 red PNG as screenshot
+            let img = NSImage(size: NSSize(width: 2, height: 2))
+            img.lockFocus()
+            NSColor.red.setFill()
+            NSBezierPath.fill(NSRect(x: 0, y: 0, width: 2, height: 2))
+            img.unlockFocus()
+            detail.groupScreenshot = img
+            detail.soloScreenshot = img
+
+            let screenshotResp = LookinConnectionResponseAttachment()
+            screenshotResp.lookinServerVersion = 7
+            screenshotResp.appIsInBackground = false
+            screenshotResp.dataTotalCount = 1
+            screenshotResp.currentDataCount = 1
+            screenshotResp.dataType = .init(rawValue: 0)!
+            screenshotResp.data = [detail] as NSArray
+            obj = screenshotResp
+            expectedJSON = [
+                "$class": "LookinConnectionResponseAttachment",
+                "lookinServerVersion": 7,
+                "data": [
+                    ["$class": "LookinDisplayItemDetail", "displayItemOid": 42],
+                ] as [[String: Any]],
+            ]
+
         default:
             fputs("Unknown fixture: \(fixtureName)\n", stderr)
+            fputs("Available: connection-response, connection-attachment, hierarchy-info, hierarchy-response, hierarchy-response-with-vc, attr-groups-response, screenshot-response\n", stderr)
             exit(1)
         }
 
@@ -326,14 +551,22 @@ struct LookinBridgeCLI {
             return appInfoToJSON(appInfo)
         case let lookinObj as LookinObject:
             return lookinObjectToJSON(lookinObj)
+        case let detail as LookinDisplayItemDetail:
+            return displayItemDetailToJSON(detail)
         case let group as LookinAttributesGroup:
             return attributesGroupToJSON(group)
         case let section as LookinAttributesSection:
             return attributesSectionToJSON(section)
         case let attr as LookinAttribute:
             return attributeToJSON(attr)
+        case let task as LookinStaticAsyncUpdateTask:
+            return staticAsyncUpdateTaskToJSON(task)
+        case let pkg as LookinStaticAsyncUpdateTasksPackage:
+            return staticAsyncUpdateTasksPackageToJSON(pkg)
         case let connAttachment as LookinConnectionAttachment:
             return connectionAttachmentToJSON(connAttachment)
+        case let image as NSImage:
+            return imageToBase64PNG(image) ?? NSNull()
         default:
             return String(describing: obj!)
         }
@@ -486,5 +719,58 @@ struct LookinBridgeCLI {
             c.getRed(&r, green: &g, blue: &b, alpha: &a)
         }
         return ["r": r, "g": g, "b": b, "a": a]
+    }
+
+    static func displayItemDetailToJSON(_ d: LookinDisplayItemDetail) -> [String: Any] {
+        var result: [String: Any] = [
+            "$class": "LookinDisplayItemDetail",
+            "displayItemOid": d.displayItemOid,
+            "failureCode": d.failureCode,
+        ]
+        if let frame = d.frameValue { result["frame"] = rectToJSON(frame.rectValue) }
+        if let bounds = d.boundsValue { result["bounds"] = rectToJSON(bounds.rectValue) }
+        if let hidden = d.hiddenValue { result["isHidden"] = hidden.boolValue }
+        if let alpha = d.alphaValue { result["alpha"] = alpha.doubleValue }
+        if let title = d.customDisplayTitle { result["customDisplayTitle"] = title }
+        if let groupImg = d.groupScreenshot { result["groupScreenshot"] = imageToBase64PNG(groupImg) ?? NSNull() }
+        if let soloImg = d.soloScreenshot { result["soloScreenshot"] = imageToBase64PNG(soloImg) ?? NSNull() }
+        if let groups = d.attributesGroupList, !groups.isEmpty {
+            result["attributesGroupList"] = groups.map { objectToJSON($0) }
+        }
+        if let customGroups = d.customAttrGroupList, !customGroups.isEmpty {
+            result["customAttrGroupList"] = customGroups.map { objectToJSON($0) }
+        }
+        if let subitems = d.subitems {
+            result["subitems"] = subitems.map { objectToJSON($0) }
+        }
+        return result
+    }
+
+    static func imageToBase64PNG(_ image: NSImage) -> String? {
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            return nil
+        }
+        return pngData.base64EncodedString()
+    }
+
+    static func staticAsyncUpdateTaskToJSON(_ t: LookinStaticAsyncUpdateTask) -> [String: Any] {
+        return [
+            "$class": "LookinStaticAsyncUpdateTask",
+            "oid": t.oid,
+            "taskType": t.taskType.rawValue,
+            "attrRequest": t.attrRequest.rawValue,
+            "needBasisVisualInfo": t.needBasisVisualInfo,
+            "needSubitems": t.needSubitems,
+        ]
+    }
+
+    static func staticAsyncUpdateTasksPackageToJSON(_ p: LookinStaticAsyncUpdateTasksPackage) -> [String: Any] {
+        var result: [String: Any] = ["$class": "LookinStaticAsyncUpdateTasksPackage"]
+        if let tasks = p.tasks {
+            result["tasks"] = tasks.map { objectToJSON($0) }
+        }
+        return result
     }
 }

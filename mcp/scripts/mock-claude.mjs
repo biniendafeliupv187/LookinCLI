@@ -3,6 +3,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerStatusTool } from "../dist/status-tool.js";
 import { registerHierarchyTool } from "../dist/hierarchy-tool.js";
+import { registerSearchTool } from "../dist/search-tool.js";
+import { registerListViewControllersTool } from "../dist/list-view-controllers-tool.js";
+import { registerReloadTool } from "../dist/reload-tool.js";
+import { registerGetViewTool } from "../dist/view-tool.js";
+import { registerGetScreenshotTool } from "../dist/screenshot-tool.js";
 
 // 1. 搭建 MCP Server（和生产 index.ts 一样）
 const server = new McpServer(
@@ -11,6 +16,11 @@ const server = new McpServer(
 );
 registerStatusTool(server);
 registerHierarchyTool(server);
+registerSearchTool(server);
+registerListViewControllersTool(server);
+registerReloadTool(server);
+registerGetViewTool(server);
+registerGetScreenshotTool(server);
 
 // 2. 模拟 Claude 作为 MCP Client
 const client = new Client({ name: "claude-mock", version: "1.0.0" });
@@ -125,7 +135,101 @@ if (status.connected) {
     );
   }
 
+  // ---- 7. search 场景演示 ----
+  console.log("\n" + "=".repeat(60));
+  console.log("[Claude] ===== search 场景演示 =====");
+  console.log("=".repeat(60));
+
+  // ---- 场景 F：按类名搜索 ----
+  console.log("\n[场景 F] search query='UIView'");
+  console.log("   适合：快速找到特定类型的视图节点");
+  console.log("-".repeat(50));
+  {
+    const r = await client.callTool({ name: "search", arguments: { query: "UIView" } });
+    const data = JSON.parse(r.content[0].text);
+    console.log("[Claude 收到的搜索结果]:");
+    console.log("  查询:     " + data.query);
+    console.log("  匹配数:   " + data.resultCount);
+    if (data.results && data.results.length > 0) {
+      console.log("  前 10 个匹配:");
+      data.results.slice(0, 10).forEach(n =>
+        console.log("    oid=" + n.oid + " " + n.className + " " + JSON.stringify(n.frame) +
+          (n.parentChain ? " | 路径: " + n.parentChain : ""))
+      );
+      if (data.results.length > 10) console.log("    ... 还有 " + (data.results.length - 10) + " 个");
+    }
+  }
+
+  // ---- 场景 G：按关键字搜索（模糊匹配）----
+  console.log("\n[场景 G] search query='Button'");
+  console.log("   适合：模糊搜索，不区分大小写");
+  console.log("-".repeat(50));
+  {
+    const r = await client.callTool({ name: "search", arguments: { query: "Button" } });
+    const data = JSON.parse(r.content[0].text);
+    console.log("[Claude 收到的搜索结果]:");
+    console.log("  查询:     " + data.query);
+    console.log("  匹配数:   " + data.resultCount);
+    data.results.slice(0, 5).forEach(n =>
+      console.log("    oid=" + n.oid + " " + n.className + (n.parentChain ? " | 路径: " + n.parentChain : ""))
+    );
+  }
+
+  // ---- 场景 H：无匹配结果 ----
+  console.log("\n[场景 H] search query='NonExistentClass'");
+  console.log("   适合：验证无命中时的返回格式");
+  console.log("-".repeat(50));
+  {
+    const r = await client.callTool({ name: "search", arguments: { query: "NonExistentClass" } });
+    const data = JSON.parse(r.content[0].text);
+    console.log("[Claude 收到的搜索结果]:");
+    console.log("  查询:     " + data.query);
+    console.log("  匹配数:   " + data.resultCount);
+    console.log("  结果:     " + (data.resultCount === 0 ? "无匹配" : "有匹配"));
+  }
+
+  // ---- 8. list_view_controllers 场景演示 ----
+  console.log("\n" + "=".repeat(60));
+  console.log("[Claude] ===== list_view_controllers 场景演示 =====");
+  console.log("=".repeat(60));
+
+  console.log("\n[场景 I] list_view_controllers");
+  console.log("   適合：了解当前页面的 VC 结构");
+  console.log("-".repeat(50));
+  {
+    const r = await client.callTool({ name: "list_view_controllers", arguments: {} });
+    const data = JSON.parse(r.content[0].text);
+    console.log("[Claude 收到的 VC 列表]:");
+    if (data.viewControllers && data.viewControllers.length > 0) {
+      data.viewControllers.forEach(vc =>
+        console.log("  " + vc.className + " (oid=" + vc.oid + ", hostViewOid=" + vc.hostViewOid + ")")
+      );
+    } else {
+      console.log("  （无 ViewController 关联）");
+    }
+  }
+
+  // ---- 9. reload 场景演示 ----
+  console.log("\n" + "=".repeat(60));
+  console.log("[Claude] ===== reload 场景演示 =====");
+  console.log("=".repeat(60));
+
+  console.log("\n[场景 J] reload");
+  console.log("   适合：界面发生变化后刷新数据");
+  console.log("-".repeat(50));
+  {
+    const r = await client.callTool({ name: "reload", arguments: {} });
+    const data = JSON.parse(r.content[0].text);
+    console.log("[Claude 收到的 reload 结果]:");
+    console.log("  状态:     " + data.status);
+    if (data.summary) {
+      console.log("  节点数:   " + data.summary.nodeCount);
+      console.log("  App:      " + data.summary.appName + " (" + data.summary.bundleId + ")");
+    }
+  }
+
   // ---- Token 消耗对比汇总 ----
+  // get_view / get_screenshot 场景已拆分到 demo-view-screenshot.mjs
   console.log("\n" + "=".repeat(60));
   console.log("[Claude] ===== Token 消耗对比汇总 =====");
   console.log("=".repeat(60));

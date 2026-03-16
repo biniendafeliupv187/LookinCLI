@@ -7,6 +7,7 @@ import type { DeviceEndpoint } from './discovery.js';
 /** Flattened view node for the hierarchy tree */
 interface ViewNode {
   oid: number;
+  layerOid: number;
   className: string;
   frame: { x: number; y: number; width: number; height: number };
   isHidden: boolean;
@@ -21,9 +22,11 @@ function toViewNode(item: any, currentDepth: number = 0, maxDepth?: number): Vie
   const viewObj = item.viewObject ?? item.layerObject;
   const className = viewObj?.classChainList?.[0] ?? 'Unknown';
   const oid = viewObj?.oid ?? 0;
+  const layerOid = item.layerObject?.oid ?? oid;
 
   const node: ViewNode = {
     oid,
+    layerOid,
     className,
     frame: item.frame ?? { x: 0, y: 0, width: 0, height: 0 },
     isHidden: item.isHidden ?? false,
@@ -55,7 +58,7 @@ function toTextLines(nodes: ViewNode[], depth: number = 0): string[] {
   for (const n of nodes) {
     const f = n.frame;
     const parts: string[] = [
-      `${indent}${n.className} (${f.x},${f.y},${f.width},${f.height}) oid=${n.oid}`,
+      `${indent}${n.className} (${f.x},${f.y},${f.width},${f.height}) oid=${n.oid} layerOid=${n.layerOid}`,
     ];
     if (n.isKeyWindow) parts.push('[KeyWindow]');
     if (n.isHidden) parts.push('(hidden)');

@@ -4,6 +4,7 @@ import { AppSession, LookinRequestType } from './app-session.js';
 import { BridgeClient } from './bridge-client.js';
 import type { DeviceEndpoint } from './discovery.js';
 import { CacheManager } from './cache.js';
+import { LookinError, errorResponse } from './errors.js';
 
 /** Flattened view node for the hierarchy tree */
 interface ViewNode {
@@ -126,16 +127,7 @@ export function registerHierarchyTool(
           const discovery = new DeviceDiscovery();
           const found = await discovery.probeFirst(2000);
           if (!found) {
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: JSON.stringify({
-                    error: 'No reachable LookinServer found on any port',
-                  }),
-                },
-              ],
-            };
+            return errorResponse(new LookinError('DISCOVERY_NO_DEVICE', 'No reachable LookinServer found on any port'));
           }
           endpoint = found;
         }
@@ -153,27 +145,11 @@ export function registerHierarchyTool(
 
           hierarchyInfo = decoded.data;
           if (!hierarchyInfo || hierarchyInfo.$class !== 'LookinHierarchyInfo') {
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: JSON.stringify({
-                    error: 'Unexpected response: missing LookinHierarchyInfo',
-                  }),
-                },
-              ],
-            };
+            return errorResponse(new LookinError('PROTOCOL_UNEXPECTED_RESPONSE', 'Unexpected response: missing LookinHierarchyInfo'));
           }
           cache?.setHierarchy(hierarchyInfo);
         } catch (err: any) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({ error: err.message ?? String(err) }),
-              },
-            ],
-          };
+          return errorResponse(err);
         } finally {
           await session.close();
         }

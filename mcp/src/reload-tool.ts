@@ -3,6 +3,7 @@ import { AppSession, LookinRequestType } from './app-session.js';
 import { BridgeClient } from './bridge-client.js';
 import type { DeviceEndpoint } from './discovery.js';
 import { CacheManager } from './cache.js';
+import { LookinError, errorResponse } from './errors.js';
 
 /** Count total nodes in a display item tree */
 function countNodes(items: any[]): number {
@@ -43,9 +44,7 @@ export function registerReloadTool(
         const discovery = new DeviceDiscovery();
         const found = await discovery.probeFirst(2000);
         if (!found) {
-          return {
-            content: [{ type: 'text' as const, text: JSON.stringify({ error: 'No reachable LookinServer found' }) }],
-          };
+          return errorResponse(new LookinError('DISCOVERY_NO_DEVICE', 'No reachable LookinServer found'));
         }
         endpoint = found;
       }
@@ -59,9 +58,7 @@ export function registerReloadTool(
 
         const hierarchyInfo = decoded.data;
         if (!hierarchyInfo || hierarchyInfo.$class !== 'LookinHierarchyInfo') {
-          return {
-            content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Unexpected response: missing LookinHierarchyInfo' }) }],
-          };
+          return errorResponse(new LookinError('PROTOCOL_UNEXPECTED_RESPONSE', 'Unexpected response: missing LookinHierarchyInfo'));
         }
 
         const displayItems: any[] = hierarchyInfo.displayItems ?? [];
@@ -86,9 +83,7 @@ export function registerReloadTool(
           }],
         };
       } catch (err: any) {
-        return {
-          content: [{ type: 'text' as const, text: JSON.stringify({ error: err.message ?? String(err) }) }],
-        };
+        return errorResponse(err);
       } finally {
         await session.close();
       }

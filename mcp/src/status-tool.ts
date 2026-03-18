@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AppSession } from './app-session.js';
 import type { DeviceEndpoint } from './discovery.js';
+import { LookinError, classifyError } from './errors.js';
 
 /**
  * Registers the `status` tool on the given McpServer.
@@ -32,7 +33,7 @@ export function registerStatusTool(
                 type: 'text' as const,
                 text: JSON.stringify({
                   connected: false,
-                  error: 'No reachable LookinServer found on any port',
+                  ...new LookinError('DISCOVERY_NO_DEVICE', 'No reachable LookinServer found on any port').toJSON(),
                 }),
               },
             ],
@@ -61,6 +62,7 @@ export function registerStatusTool(
           ],
         };
       } catch (err: any) {
+        const classified = classifyError(err);
         return {
           content: [
             {
@@ -70,7 +72,7 @@ export function registerStatusTool(
                 transport: endpoint.transport,
                 host: endpoint.host,
                 port: endpoint.port,
-                error: err.message ?? String(err),
+                ...classified.toJSON(),
               }),
             },
           ],

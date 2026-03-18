@@ -4,6 +4,7 @@ import { AppSession, LookinRequestType } from './app-session.js';
 import { BridgeClient } from './bridge-client.js';
 import type { DeviceEndpoint } from './discovery.js';
 import { CacheManager } from './cache.js';
+import { LookinError, errorResponse } from './errors.js';
 
 /** Flatten a decoded LookinAttributesGroup into a clean structure */
 function toAttrGroup(group: any) {
@@ -66,16 +67,7 @@ export function registerGetViewTool(
         const discovery = new DeviceDiscovery();
         const found = await discovery.probeFirst(2000);
         if (!found) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  error: 'No reachable LookinServer found on any port',
-                }),
-              },
-            ],
-          };
+          return errorResponse(new LookinError('DISCOVERY_NO_DEVICE', 'No reachable LookinServer found on any port'));
         }
         endpoint = found;
       }
@@ -100,16 +92,7 @@ export function registerGetViewTool(
         const decoded = await bridge.decode(base64);
 
         if (decoded.$class !== 'LookinConnectionResponseAttachment') {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  error: 'Unexpected response class: ' + decoded.$class,
-                }),
-              },
-            ],
-          };
+          return errorResponse(new LookinError('PROTOCOL_UNEXPECTED_RESPONSE', 'Unexpected response class: ' + decoded.$class));
         }
 
         const rawGroups: any[] = decoded.data ?? [];
@@ -128,14 +111,7 @@ export function registerGetViewTool(
           content: [{ type: 'text' as const, text: JSON.stringify({ ...result, _meta }) }],
         };
       } catch (err: any) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({ error: err.message ?? String(err) }),
-            },
-          ],
-        };
+        return errorResponse(err);
       } finally {
         await session.close();
       }

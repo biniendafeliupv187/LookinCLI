@@ -4,6 +4,7 @@ import { AppSession, LookinRequestType } from './app-session.js';
 import { BridgeClient } from './bridge-client.js';
 import type { DeviceEndpoint } from './discovery.js';
 import type { CacheManager } from './cache.js';
+import { LookinError, errorResponse } from './errors.js';
 
 /**
  * Supported attribute whitelist.
@@ -137,29 +138,13 @@ export function registerModifyViewTool(
       // Validate attribute whitelist
       const spec = ATTR_WHITELIST[attribute];
       if (!spec) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({
-                error: `Unsupported attribute: ${attribute}. Supported: ${supportedAttrs}`,
-              }),
-            },
-          ],
-        };
+        return errorResponse(new LookinError('VALIDATION_INVALID_ATTRIBUTE', `Unsupported attribute: ${attribute}. Supported: ${supportedAttrs}`));
       }
 
       // Validate value type
       const validation = validateValue(attribute, value);
       if (!validation.ok) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({ error: validation.reason }),
-            },
-          ],
-        };
+        return errorResponse(new LookinError('VALIDATION_INVALID_VALUE', validation.reason));
       }
 
       let endpoint: DeviceEndpoint;
@@ -170,16 +155,7 @@ export function registerModifyViewTool(
         const discovery = new DeviceDiscovery();
         const found = await discovery.probeFirst(2000);
         if (!found) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  error: 'No reachable LookinServer found on any port',
-                }),
-              },
-            ],
-          };
+          return errorResponse(new LookinError('DISCOVERY_NO_DEVICE', 'No reachable LookinServer found on any port'));
         }
         endpoint = found;
       }
@@ -213,16 +189,7 @@ export function registerModifyViewTool(
         const decoded = await bridge.decode(base64);
 
         if (decoded.$class !== 'LookinConnectionResponseAttachment') {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  error: 'Unexpected response class: ' + decoded.$class,
-                }),
-              },
-            ],
-          };
+          return errorResponse(new LookinError('PROTOCOL_UNEXPECTED_RESPONSE', 'Unexpected response class: ' + decoded.$class));
         }
 
         // Response data is a LookinDisplayItemDetail
@@ -256,14 +223,7 @@ export function registerModifyViewTool(
           content: [{ type: 'text' as const, text: JSON.stringify(result) }],
         };
       } catch (err: any) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({ error: err.message ?? String(err) }),
-            },
-          ],
-        };
+        return errorResponse(err);
       } finally {
         // Invalidate caches after modification
         cache?.invalidateViewDetail(oid);

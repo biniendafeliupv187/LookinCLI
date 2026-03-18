@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AppSession, LookinRequestType } from './app-session.js';
 import { BridgeClient } from './bridge-client.js';
 import type { DeviceEndpoint } from './discovery.js';
+import { LookinError, errorResponse } from './errors.js';
 
 /**
  * Registers the `get_screenshot` tool on the given McpServer.
@@ -36,16 +37,7 @@ export function registerGetScreenshotTool(
         const discovery = new DeviceDiscovery();
         const found = await discovery.probeFirst(2000);
         if (!found) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  error: 'No reachable LookinServer found on any port',
-                }),
-              },
-            ],
-          };
+          return errorResponse(new LookinError('DISCOVERY_NO_DEVICE', 'No reachable LookinServer found on any port'));
         }
         endpoint = found;
       }
@@ -84,48 +76,21 @@ export function registerGetScreenshotTool(
         const decoded = await bridge.decode(base64);
 
         if (decoded.$class !== 'LookinConnectionResponseAttachment') {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  error: 'Unexpected response class: ' + decoded.$class,
-                }),
-              },
-            ],
-          };
+          return errorResponse(new LookinError('PROTOCOL_UNEXPECTED_RESPONSE', 'Unexpected response class: ' + decoded.$class));
         }
 
         const items: any[] = decoded.data ?? [];
         const detail = items.find((d: any) => d.displayItemOid === oid) ?? items[0];
 
         if (!detail) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  error: `No screenshot data returned for oid ${oid}`,
-                }),
-              },
-            ],
-          };
+          return errorResponse(new LookinError('PROTOCOL_UNEXPECTED_RESPONSE', `No screenshot data returned for oid ${oid}`));
         }
 
         // Prefer groupScreenshot (includes subviews), fall back to soloScreenshot
         const screenshotBase64 = detail.groupScreenshot ?? detail.soloScreenshot;
 
         if (!screenshotBase64) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  error: `View oid=${oid} returned no screenshot image`,
-                }),
-              },
-            ],
-          };
+          return errorResponse(new LookinError('PROTOCOL_UNEXPECTED_RESPONSE', `View oid=${oid} returned no screenshot image`));
         }
 
         const metadata: any = { oid };
@@ -148,14 +113,7 @@ export function registerGetScreenshotTool(
           ],
         };
       } catch (err: any) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify({ error: err.message ?? String(err) }),
-            },
-          ],
-        };
+        return errorResponse(err);
       } finally {
         await session.close();
       }

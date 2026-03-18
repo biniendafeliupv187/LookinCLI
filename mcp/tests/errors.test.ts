@@ -1,0 +1,320 @@
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import * as net from 'node:net';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { FrameEncoder } from '../src/transport.js';
+import { registerStatusTool } from '../src/status-tool.js';
+import { registerHierarchyTool } from '../src/hierarchy-tool.js';
+import { registerGetViewTool } from '../src/view-tool.js';
+import { LookinError, classifyError, errorResponse } from '../src/errors.js';
+
+// ─── Helpers ───
+
+function parseToolResult(result: any): any {
+  return JSON.parse(result.content[0].text);
+}
+
+async function setupMcpPair(
+  registerFn: (server: McpServer) => void,
+): Promise<{ client: Client; server: McpServer }> {
+  const server = new McpServer(
+    { name: 'test', version: '0.1.0' },
+    { capabilities: { tools: {} } },
+  );
+  registerFn(server);
+  const client = new Client({ name: 'test-client', version: '0.1.0' });
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(st), client.connect(ct)]);
+  return { client, server };
+}
+
+// ─── Unit: LookinError ───
+
+describe('LookinError', () => {
+  it('creates error with code, message, and details', () => {
+    const err = new LookinError('TRANSPORT_TIMEOUT', 'timed out', { requestType: 202 });
+    expect(err.code).toBe('TRANSPORT_TIMEOUT');
+    expect(err.message).toBe('timed out');
+    expect(err.details).toEqual({ requestType: 202 });
+    expect(err.name).toBe('LookinError');
+    expect(err).toBeInstanceOf(Error);
+  });
+
+  it('toJSON returns structured error object', () => {
+    const err = new LookinError('TRANSPORT_REFUSED', 'connection refused', { host: '127.0.0.1', port: 47175 });
+    const json = err.toJSON();
+    expect(json).toEqual({
+      error: 'connection refused',
+      code: 'TRANSPORT_REFUSED',
+      details: { host: '127.0.0.1', port: 47175 },
+    });
+  });
+
+  it('toJSON omits details when undefined', () => {
+    const err = new LookinError('DISCOVERY_NO_DEVICE', 'no device');
+    const json = err.toJSON();
+    expect(json).toEqual({ error: 'no device', code: 'DISCOVERY_NO_DEVICE' });
+    expect(json).not.toHaveProperty('details');
+  });
+});
+
+// ─── Unit: classifyError ───
+
+describe('classifyError', () => {
+  it('passes through existing LookinError unchanged', () => {
+    const original = new LookinError('BRIDGE_DECODE_FAILED', 'decode fail');
+    expect(classifyError(original)).toBe(original);
+  });
+
+  it('classifies correlator timeout', () => {
+    const err = new Error('Request type=202 tag=5 timeout after 15000ms');
+    const classified = classifyError(err);
+    expect(classified.code).toBe('TRANSPORT_TIMEOUT');
+    expect(classified.details).toEqual({ requestType: 202, tag: 5, timeoutMs: 15000 });
+  });
+
+  it('classifies ECONNREFUSED', () => {
+    const err = new Error('connect ECONNREFUSED 127.0.0.1:47175');
+    const classified = classifyError(err);
+    expect(classified.code).toBe('TRANSPORT_REFUSED');
+    expect(classified.details).toEqual({ host: '127.0.0.1', port: 47175 });
+  });
+
+  it('classifies ECONNRESET', () => {
+    const classified = classifyError(new Error('read ECONNRESET'));
+    expect(classified.code).toBe('TRANSPORT_CLOSED');
+  });
+
+  it('classifies connection closed', () => {
+    const classified = classifyError(new Error('Connection closed'));
+    expect(classified.code).toBe('TRANSPORT_CLOSED');
+  });
+
+  it('classifies session closed', () => {
+    const classified = classifyError(new Error('Session is closed'));
+    expect(classified.code).toBe('TRANSPORT_CLOSED');
+  });
+
+  it('classifies bridge decode failure', () => {
+    const classified = classifyError(new Error('bridge decode failed (code 1): invalid data'));
+    expect(classified.code).toBe('BRIDGE_DECODE_FAILED');
+  });
+
+  it('classifies bridge encode failure', () => {
+    const classified = classifyError(new Error('bridge encode failed (code 1): invalid json'));
+    expect(classified.code).toBe('BRIDGE_ENCODE_FAILED');
+  });
+
+  it('classifies unexpected response', () => {
+    const classified = classifyError(new Error('Unexpected response: missing LookinHierarchyInfo'));
+    expect(classified.code).toBe('PROTOCOL_UNEXPECTED_RESPONSE');
+  });
+
+  it('wraps unknown error as TRANSPORT_CLOSED', () => {
+    const classified = classifyError(new Error('some unknown error'));
+    expect(classified.code).toBe('TRANSPORT_CLOSED');
+    expect(classified.message).toBe('some unknown error');
+  });
+
+  it('handles string error', () => {
+    const classified = classifyError('raw string error');
+    expect(classified).toBeInstanceOf(LookinError);
+    expect(classified.message).toBe('raw string error');
+  });
+});
+
+// ─── Unit: errorResponse ───
+
+describe('errorResponse', () => {
+  it('returns structured MCP content with code', () => {
+    const err = new Error('Request type=200 tag=1 timeout after 5000ms');
+    const resp = errorResponse(err);
+    expect(resp.content).toHaveLength(1);
+    expect(resp.content[0].type).toBe('text');
+    const parsed = JSON.parse(resp.content[0].text);
+    expect(parsed.code).toBe('TRANSPORT_TIMEOUT');
+    expect(parsed.error).toContain('timeout');
+  });
+
+  it('returns code for ECONNREFUSED', () => {
+    const resp = errorResponse(new Error('connect ECONNREFUSED 127.0.0.1:19999'));
+    const parsed = JSON.parse(resp.content[0].text);
+    expect(parsed.code).toBe('TRANSPORT_REFUSED');
+    expect(parsed.details?.port).toBe(19999);
+  });
+});
+
+// ─── Integration: Transport timeout produces structured error ───
+
+describe('transport timeout structured error', () => {
+  let mockServer: net.Server | null = null;
+  let client: Client | null = null;
+  let mcpServer: McpServer | null = null;
+
+  afterEach(async () => {
+    if (client) { await client.close(); client = null; }
+    if (mcpServer) { await mcpServer.close(); mcpServer = null; }
+    if (mockServer) { mockServer.close(); mockServer = null; }
+  });
+
+  /**
+   * Creates a "black hole" server: accepts TCP connections but never responds.
+   * This causes the correlator to time out.
+   */
+  function createBlackHoleServer(): Promise<{ server: net.Server; port: number }> {
+    return new Promise((resolve) => {
+      const server = net.createServer((_socket) => {
+        // Intentionally never respond — triggers correlator timeout
+      });
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address() as net.AddressInfo;
+        resolve({ server, port: addr.port });
+      });
+    });
+  }
+
+  it('status tool returns TRANSPORT_TIMEOUT code on timeout', async () => {
+    const { server, port } = await createBlackHoleServer();
+    mockServer = server;
+
+    const pair = await setupMcpPair((s) =>
+      registerStatusTool(s, { host: '127.0.0.1', port, transport: 'simulator' }),
+    );
+    client = pair.client;
+    mcpServer = pair.server;
+
+    const result = await client.callTool({ name: 'status' });
+    const data = parseToolResult(result);
+
+    expect(data.connected).toBe(false);
+    expect(data.error).toContain('timeout');
+    expect(data.code).toBe('TRANSPORT_TIMEOUT');
+  });
+
+  it('get_hierarchy returns TRANSPORT_TIMEOUT code on timeout', async () => {
+    const { server, port } = await createBlackHoleServer();
+    mockServer = server;
+
+    const pair = await setupMcpPair((s) =>
+      registerHierarchyTool(s, { host: '127.0.0.1', port, transport: 'simulator' }),
+    );
+    client = pair.client;
+    mcpServer = pair.server;
+
+    const result = await client.callTool({ name: 'get_hierarchy', arguments: {} });
+    const data = parseToolResult(result);
+
+    expect(data.error).toContain('timeout');
+    expect(data.code).toBe('TRANSPORT_TIMEOUT');
+  }, 20000);
+});
+
+// ─── Integration: Connection refused produces structured error ───
+
+describe('connection refused structured error', () => {
+  let client: Client | null = null;
+  let mcpServer: McpServer | null = null;
+
+  afterEach(async () => {
+    if (client) { await client.close(); client = null; }
+    if (mcpServer) { await mcpServer.close(); mcpServer = null; }
+  });
+
+  it('status tool returns TRANSPORT_REFUSED code when port unreachable', async () => {
+    const pair = await setupMcpPair((s) =>
+      registerStatusTool(s, { host: '127.0.0.1', port: 19998, transport: 'simulator' }),
+    );
+    client = pair.client;
+    mcpServer = pair.server;
+
+    const result = await client.callTool({ name: 'status' });
+    const data = parseToolResult(result);
+
+    expect(data.connected).toBe(false);
+    expect(data.code).toBe('TRANSPORT_REFUSED');
+    expect(data.error).toContain('ECONNREFUSED');
+  });
+
+  it('get_hierarchy returns TRANSPORT_REFUSED code when port unreachable', async () => {
+    const pair = await setupMcpPair((s) =>
+      registerHierarchyTool(s, { host: '127.0.0.1', port: 19998, transport: 'simulator' }),
+    );
+    client = pair.client;
+    mcpServer = pair.server;
+
+    const result = await client.callTool({ name: 'get_hierarchy', arguments: {} });
+    const data = parseToolResult(result);
+
+    expect(data.code).toBe('TRANSPORT_REFUSED');
+    expect(data.error).toContain('ECONNREFUSED');
+  });
+
+  it('get_view returns TRANSPORT_REFUSED code when port unreachable', async () => {
+    const pair = await setupMcpPair((s) =>
+      registerGetViewTool(s, { host: '127.0.0.1', port: 19998, transport: 'simulator' }),
+    );
+    client = pair.client;
+    mcpServer = pair.server;
+
+    const result = await client.callTool({ name: 'get_view', arguments: { oid: 123 } });
+    const data = parseToolResult(result);
+
+    expect(data.code).toBe('TRANSPORT_REFUSED');
+  });
+});
+
+// ─── Integration: Discovery failure returns DISCOVERY_NO_DEVICE ───
+
+describe('discovery failure structured error', () => {
+  let client: Client | null = null;
+  let mcpServer: McpServer | null = null;
+
+  afterEach(async () => {
+    if (client) { await client.close(); client = null; }
+    if (mcpServer) { await mcpServer.close(); mcpServer = null; }
+  });
+
+  it('status returns DISCOVERY_NO_DEVICE when no endpoint and discovery fails', async () => {
+    // Mock discovery to return null
+    const { registerStatusTool: registerFn } = await import('../src/status-tool.js');
+    mcpServer = new McpServer(
+      { name: 'test', version: '0.1.0' },
+      { capabilities: { tools: {} } },
+    );
+    // Register without fixed endpoint — relies on discovery.
+    // We mock discovery to always return null.
+    registerFn(mcpServer); // no fixedEndpoint → triggers discovery
+
+    client = new Client({ name: 'test-client', version: '0.1.0' });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await Promise.all([mcpServer.connect(st), client.connect(ct)]);
+
+    // In CI/test, discovery's probeFirst will find nothing on any port
+    // This may take a while due to port probing — use a timeout
+    const result = await client.callTool({ name: 'status' });
+    const data = parseToolResult(result);
+
+    // Either connected=false+error format (current) or code-based
+    expect(data.connected).toBe(false);
+    expect(data.code).toBe('DISCOVERY_NO_DEVICE');
+  }, 30000);
+
+  it('get_hierarchy returns DISCOVERY_NO_DEVICE when no endpoint found', async () => {
+    const { registerHierarchyTool: registerFn } = await import('../src/hierarchy-tool.js');
+    mcpServer = new McpServer(
+      { name: 'test', version: '0.1.0' },
+      { capabilities: { tools: {} } },
+    );
+    registerFn(mcpServer); // no fixedEndpoint
+
+    client = new Client({ name: 'test-client', version: '0.1.0' });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await Promise.all([mcpServer.connect(st), client.connect(ct)]);
+
+    const result = await client.callTool({ name: 'get_hierarchy', arguments: {} });
+    const data = parseToolResult(result);
+
+    expect(data.code).toBe('DISCOVERY_NO_DEVICE');
+  }, 30000);
+});

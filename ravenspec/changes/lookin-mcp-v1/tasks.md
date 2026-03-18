@@ -80,13 +80,13 @@
 
 ## 11. Error Model & Edge Cases
 
-- [ ] 11.1 Write tests: transport timeout produces structured tool error with code and message
-- [ ] 11.2 Write tests: connection refused / port unreachable produces structured error
-- [ ] 11.3 Implement unified error model: map transport errors, bridge errors, and validation errors to MCP tool error responses
-- [ ] 11.4 Write test: version incompatibility detected during discovery is reported with diagnostic info
+- [x] 11.1 Write tests: transport timeout produces structured tool error with code and message
+- [x] 11.2 Write tests: connection refused / port unreachable produces structured error
+- [x] 11.3 Implement unified error model: map transport errors, bridge errors, and validation errors to MCP tool error responses
+- [x] 11.4 Write test: version incompatibility detected during discovery is reported with diagnostic info
 
 ## 12. Integration & Documentation
 
-- [ ] 12.1 End-to-end integration test: full flow from `status` → `get_hierarchy` → `search` → `get_view` → `get_screenshot` → `modify_view` → `reload` against mock server
-- [ ] 12.2 Write README.md for `LookinMCP/`: prerequisites, build instructions, MCP configuration, usage examples
-- [ ] 12.3 Add Claude Desktop MCP configuration example (`claude_desktop_config.json` snippet)
+- [x] 12.1 End-to-end integration test: full flow from `status` → `get_hierarchy` → `search` → `get_view` → `get_screenshot` → `modify_view` → `reload` against mock server
+- [x] 12.2 Write README.md for `LookinMCP/`: prerequisites, build instructions, MCP configuration, usage examples
+- [x] 12.3 Add Claude Desktop MCP configuration example (`claude_desktop_config.json` snippet)

@@ -130,5 +130,54 @@
       ],
       "lookinServerVersion": 7
     }
+  },
+  "modifyResponse": {
+    "base64": "YnBsaXN0MDDUAQIDBAUGBwpYJHZlcnNpb25ZJGFyY2hpdmVyVCR0b3BYJG9iamVjdHMSAAGGoF8QD05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGvECsLDB0vMDEyMzQ1PD0+P0BGGk1OUlxdXl9jbW5vdICBGYOEhYaJlZaXmJmaVSRudWxs2A0ODxAREhMUFRYXGBkaFRxfEBBjdXJyZW50RGF0YUNvdW50XxATbG9va2luU2VydmVyVmVyc2lvblYkY2xhc3NRMF8QEWFwcElzSW5CYWNrZ3JvdW5kUTFeZGF0YVRvdGFsQ291bnRVZXJyb3KAEBAHgCqAAggQAIAQgADTHh8PICcuV05TLmtleXNaTlMub2JqZWN0c6YhIiMkJSaAA4AEgAWABoAHgAimKCkqKywtgAmAD4ARgBKAH4ApgCNaZnJhbWVWYWx1ZVtib3VuZHNWYWx1ZVphbHBoYVZhbHVlXxATYXR0cmlidXRlc0dyb3VwTGlzdFtoaWRkZW5WYWx1ZVYkY2xhc3PSHw82O6Q3ODk6gAqAC4AMgA2ADhAKEBQQyBBk0kFCQ0RaJGNsYXNzbmFtZVgkY2xhc3Nlc1dOU0FycmF5okNFWE5TT2JqZWN00h8PRzukFRU5OoAQgBCADIANgA4jP/AAAAAAAADSHw9PO6FQgBOADtMeHw9TVy6jVFUmgBSAFYAIo1hZWoAWgBeAKIAjWmlkZW50aWZpZXJcYXR0clNlY3Rpb25zVlVJVmlld9IfD2A7oWGAGIAO0x4fD2RoLqNUZiaAFIAZgAijaWprgBqAG4AngCNaYXR0cmlidXRlc18QEFVJVmlld19TZWN0aW9uXzDSHw9wO6JxcoAcgCSADtMeHw91ei6kdndUJoAdgB6AFIAIpCx8fX6AH4AggCGAIoAjVXZhbHVlWGF0dHJUeXBlCBAOVnZsX3ZfaF8QD0xvb2tpbkF0dHJpYnV0ZdJBQoeIXE5TRGljdGlvbmFyeaKHRdMeHw+Kjy6kdndUJoAdgB6AFIAIpCqRkn6AEYAlgCaAIoAjEAxWdmxfdl9vXxAXTG9va2luQXR0cmlidXRlc1NlY3Rpb25fEBVMb29raW5BdHRyaWJ1dGVzR3JvdXBfEBdMb29raW5EaXNwbGF5SXRlbURldGFpbNJBQpucXxAiTG9va2luQ29ubmVjdGlvblJlc3BvbnNlQXR0YWNobWVudKOdnkVfECJMb29raW5Db25uZWN0aW9uUmVzcG9uc2VBdHRhY2htZW50XxAaTG9va2luQ29ubmVjdGlvbkF0dGFjaG1lbnQACAARABoAJAApADIANwBJAEwAUQBTAIEAhwCYAKsAwQDIAMoA3gDgAO8A9QD3APkA+wD9AP4BAAECAQQBCwETAR4BJQEnASkBKwEtAS8BMQE4AToBPAE+AUABQgFEAUYBUQFdAWgBfgGKAZEBlgGbAZ0BnwGhAaMBpQGnAakBqwGtAbIBvQHGAc4B0QHaAd8B5AHmAegB6gHsAe4B9wH8Af4CAAICAgkCDQIPAhECEwIXAhkCGwIdAh8CKgI3Aj4CQwJFAkcCSQJQAlQCVgJYAloCXgJgAmICZAJmAnEChAKJAowCjgKQApICmQKeAqACogKkAqYCqwKtAq8CsQKzArUCuwLEAsUCxwLOAuAC5QLyAvUC/AMBAwMDBQMHAwkDDgMQAxIDFAMWAxgDGgMhAzsDUwNtA3IDlwObA8AAAAAAAAACAQAAAAAAAACfAAAAAAAAAAAAAAAAAAAD3Q==",
+    "expected": {
+      "$class": "LookinConnectionResponseAttachment",
+      "data": {
+        "$class": "LookinDisplayItemDetail",
+        "frameValue": [
+          10,
+          20,
+          200,
+          100
+        ],
+        "boundsValue": [
+          0,
+          0,
+          200,
+          100
+        ],
+        "hiddenValue": false,
+        "alphaValue": 1,
+        "attributesGroupList": [
+          {
+            "$class": "LookinAttributesGroup",
+            "identifier": "UIView",
+            "attrSections": [
+              {
+                "$class": "LookinAttributesSection",
+                "identifier": "UIView_Section_0",
+                "attributes": [
+                  {
+                    "$class": "LookinAttribute",
+                    "identifier": "vl_v_h",
+                    "value": false,
+                    "attrType": 14
+                  },
+                  {
+                    "$class": "LookinAttribute",
+                    "identifier": "vl_v_o",
+                    "value": 1,
+                    "attrType": 12
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
   }
 }

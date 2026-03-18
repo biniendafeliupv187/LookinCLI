@@ -89,6 +89,8 @@ struct LookinBridgeCLI {
             obj = jsonToStaticAsyncUpdateTask(json)
         case "LookinStaticAsyncUpdateTasksPackage":
             obj = jsonToStaticAsyncUpdateTasksPackage(json)
+        case "LookinAttributeModification":
+            obj = jsonToAttributeModification(json)
         default:
             fputs("Error: unsupported model class '\(modelClass)'\n", stderr)
             exit(1)
@@ -126,6 +128,8 @@ struct LookinBridgeCLI {
                 return jsonToStaticAsyncUpdateTasksPackage(dict)
             case "LookinStaticAsyncUpdateTask":
                 return jsonToStaticAsyncUpdateTask(dict)
+            case "LookinAttributeModification":
+                return jsonToAttributeModification(dict)
             default:
                 return dict as NSDictionary
             }
@@ -141,6 +145,63 @@ struct LookinBridgeCLI {
         if let v = json["needBasisVisualInfo"] as? Bool { t.needBasisVisualInfo = v }
         if let v = json["needSubitems"] as? Bool { t.needSubitems = v }
         return t
+    }
+
+    static func jsonToAttributeModification(_ json: [String: Any]) -> LookinAttributeModification {
+        let m = LookinAttributeModification()
+        if let oid = json["targetOid"] as? Int { m.targetOid = UInt(oid) }
+        if let sel = json["setterSelector"] as? String { m.setterSelector = NSSelectorFromString(sel) }
+        if let raw = json["attrType"] as? Int, let at = LookinAttrType(rawValue: raw) { m.attrType = at }
+        if let v = json["value"] { m.value = convertModificationValue(v, attrType: m.attrType) }
+        if let ver = json["clientReadableVersion"] as? String { m.clientReadableVersion = ver }
+        return m
+    }
+
+    /// Convert JSON value to the appropriate ObjC type for a modification.
+    /// Uses rawValue to avoid ObjC→Swift enum name import issues.
+    static func convertModificationValue(_ value: Any, attrType: LookinAttrType) -> Any {
+        switch attrType.rawValue {
+        case 14: // BOOL
+            return NSNumber(value: (value as? Bool) ?? false)
+        case 12: // Float
+            return NSNumber(value: (value as? Double) ?? 0.0)
+        case 13: // Double
+            return NSNumber(value: (value as? Double) ?? 0.0)
+        case 3, 5, 6: // Int, Long, LongLong
+            return NSNumber(value: (value as? Int) ?? 0)
+        case 20: // CGRect
+            if let arr = value as? [Double], arr.count == 4 {
+                return NSValue(rect: NSRect(x: arr[0], y: arr[1], width: arr[2], height: arr[3]))
+            }
+            return NSValue(rect: .zero)
+        case 17: // CGPoint
+            if let arr = value as? [Double], arr.count == 2 {
+                return NSValue(point: NSPoint(x: arr[0], y: arr[1]))
+            }
+            return NSValue(point: .zero)
+        case 19: // CGSize
+            if let arr = value as? [Double], arr.count == 2 {
+                return NSValue(size: NSSize(width: arr[0], height: arr[1]))
+            }
+            return NSValue(size: .zero)
+        case 22: // UIEdgeInsets
+            if let arr = value as? [Double], arr.count == 4 {
+                let insets = NSEdgeInsets(top: CGFloat(arr[0]), left: CGFloat(arr[1]), bottom: CGFloat(arr[2]), right: CGFloat(arr[3]))
+                return NSValue(edgeInsets: insets)
+            }
+            return NSValue(edgeInsets: NSEdgeInsets())
+        case 27: // UIColor (RGBA array)
+            if let arr = value as? [Double], arr.count == 4 {
+                return [NSNumber(value: arr[0]), NSNumber(value: arr[1]), NSNumber(value: arr[2]), NSNumber(value: arr[3])] as NSArray
+            }
+            return [NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: 0), NSNumber(value: 1)] as NSArray
+        case 24: // NSString
+            return (value as? String ?? "") as NSString
+        case 25, 26: // EnumInt, EnumLong
+            return NSNumber(value: (value as? Int) ?? 0)
+        default:
+            return value as AnyObject
+        }
     }
 
     static func jsonToStaticAsyncUpdateTasksPackage(_ json: [String: Any]) -> LookinStaticAsyncUpdateTasksPackage {

@@ -51,23 +51,23 @@
 
 ## 7. View Inspection Tools (TDD)
 
-- [ ] 7.1 Write tests: `get_view` returns attribute groups, editable fields, object metadata, no screenshot; verifies Type 210 request and bridge decode
-- [ ] 7.2 Implement `get_view` tool handler: send Type 210 via AppSession → decode attributes via bridge → return structured attribute JSON
-- [ ] 7.3 Write tests: `get_screenshot` returns base64 PNG with mime type metadata; verifies Type 203 request
-- [ ] 7.4 Implement `get_screenshot` tool handler: send Type 203 → receive image payload → base64 encode → return with `image/png` mime type
+- [x] 7.1 Write tests: `get_view` returns attribute groups, editable fields, object metadata, no screenshot; verifies Type 210 request and bridge decode
+- [x] 7.2 Implement `get_view` tool handler: send Type 210 via AppSession → decode attributes via bridge → return structured attribute JSON
+- [x] 7.3 Write tests: `get_screenshot` returns base64 PNG with mime type metadata; verifies Type 203 request
+- [x] 7.4 Implement `get_screenshot` tool handler: send Type 203 → receive image payload → base64 encode → return with `image/png` mime type
 
 ## 8. View Modification Tool (TDD)
 
-- [ ] 8.1 Write tests: `modify_view` sends correct Type 204 payload for supported attributes (`frame`, `hidden`, `alpha`, `backgroundColor`, `text`); returns updated state
-- [ ] 8.2 Write tests: `modify_view` rejects unsupported property with validation error
-- [ ] 8.3 Implement `modify_view` tool handler: validate attribute against whitelist → encode modification via bridge → send Type 204 → decode response → invalidate target cache → return result
-- [ ] 8.4 Write test: after successful modify, cached detail for that node is invalidated and hierarchy cache marked stale
+- [x] 8.1 Write tests: `modify_view` sends correct Type 204 payload for supported attributes (`frame`, `hidden`, `alpha`, `backgroundColor`, `text`); returns updated state
+- [x] 8.2 Write tests: `modify_view` rejects unsupported property with validation error
+- [x] 8.3 Implement `modify_view` tool handler: validate attribute against whitelist → encode modification via bridge → send Type 204 → decode response → invalidate target cache → return result
+- [x] 8.4 Write test: after successful modify, cached detail for that node is invalidated and hierarchy cache marked stale
 
 ## 9. App Info Tool (TDD)
 
-- [ ] 9.1 Write tests: `get_app_info` returns bundle identifier, display name, device name, OS version from connection attachment
-- [ ] 9.2 Implement `get_app_info` tool handler: reuse ping attachment data from AppSession (or re-ping) → extract and return structured app metadata
-- [ ] 9.3 Write test: `get_app_info` returns structured error when no app is connected
+- [x] 9.1 Write tests: `get_app_info` returns bundle identifier, display name, device name, OS version from connection attachment
+- [x] 9.2 Implement `get_app_info` tool handler: reuse ping attachment data from AppSession (or re-ping) → extract and return structured app metadata
+- [x] 9.3 Write test: `get_app_info` returns structured error when no app is connected
 
 ## 10. Cache Layer (TDD)
 

@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AppSession, LookinRequestType } from './app-session.js';
 import { BridgeClient } from './bridge-client.js';
 import type { DeviceEndpoint } from './discovery.js';
+import { CacheManager } from './cache.js';
 
 /** Count total nodes in a display item tree */
 function countNodes(items: any[]): number {
@@ -24,12 +25,15 @@ function countNodes(items: any[]): number {
 export function registerReloadTool(
   server: McpServer,
   fixedEndpoint?: DeviceEndpoint,
+  cache?: CacheManager,
 ): void {
   server.tool(
     'reload',
     'Reload the view hierarchy from the live app. Clears any cached data and fetches a fresh hierarchy. Returns a summary with node count and app info.',
     {},
     async () => {
+      // Clear all caches first
+      cache?.clear();
       let endpoint: DeviceEndpoint;
 
       if (fixedEndpoint) {
@@ -63,6 +67,9 @@ export function registerReloadTool(
         const displayItems: any[] = hierarchyInfo.displayItems ?? [];
         const nodeCount = countNodes(displayItems);
         const appInfo = hierarchyInfo.appInfo;
+
+        // Store fresh hierarchy in cache
+        cache?.setHierarchy(hierarchyInfo);
 
         return {
           content: [{

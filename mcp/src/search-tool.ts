@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AppSession, LookinRequestType } from './app-session.js';
 import { BridgeClient } from './bridge-client.js';
 import type { DeviceEndpoint } from './discovery.js';
+import { CacheManager } from './cache.js';
 
 interface SearchResult {
   oid: number;
@@ -43,6 +44,7 @@ function flattenItems(
 export function registerSearchTool(
   server: McpServer,
   fixedEndpoint?: DeviceEndpoint,
+  cache?: CacheManager,
 ): void {
   server.tool(
     'search',
@@ -53,6 +55,36 @@ export function registerSearchTool(
         .describe('Search string to match against className or memory address. Case-insensitive partial match.'),
     },
     async ({ query }) => {
+      const startMs = Date.now();
+      let cacheHit = false;
+
+      // Try to use cached search index
+      const cachedIndex = cache?.getSearchIndex();
+      if (cachedIndex) {
+        cacheHit = true;
+        const queryLower = query.toLowerCase();
+        const results: SearchResult[] = [];
+        for (const item of cachedIndex) {
+          const matchesClass = item.className.toLowerCase().includes(queryLower);
+          const matchesAddress = item.address.toLowerCase().includes(queryLower);
+          if (matchesClass || matchesAddress) {
+            results.push({
+              oid: item.oid,
+              className: item.className,
+              frame: item.frame,
+              isHidden: item.isHidden,
+              alpha: item.alpha,
+              parentChain: item.parentChain,
+            });
+          }
+        }
+        const elapsedMs = Date.now() - startMs;
+        const _meta = CacheManager.buildMeta({ cacheHit: true, source: 'cache', stalePossible: cache!.getHierarchy()?.stale ?? false, elapsedMs });
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ query, resultCount: results.length, results, _meta }) }],
+        };
+      }
+
       let endpoint: DeviceEndpoint;
 
       if (fixedEndpoint) {
@@ -84,6 +116,7 @@ export function registerSearchTool(
         }
 
         const displayItems: any[] = hierarchyInfo.displayItems ?? [];
+        cache?.setHierarchy(hierarchyInfo);
         const flattened = flattenItems(displayItems);
         const queryLower = query.toLowerCase();
 
@@ -108,8 +141,10 @@ export function registerSearchTool(
           }
         }
 
+        const elapsedMs = Date.now() - startMs;
+        const _meta = CacheManager.buildMeta({ cacheHit: false, source: 'live', stalePossible: false, elapsedMs });
         return {
-          content: [{ type: 'text' as const, text: JSON.stringify({ query, resultCount: results.length, results }) }],
+          content: [{ type: 'text' as const, text: JSON.stringify({ query, resultCount: results.length, results, _meta }) }],
         };
       } catch (err: any) {
         return {

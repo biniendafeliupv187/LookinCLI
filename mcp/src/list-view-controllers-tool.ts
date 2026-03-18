@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AppSession, LookinRequestType } from './app-session.js';
 import { BridgeClient } from './bridge-client.js';
 import type { DeviceEndpoint } from './discovery.js';
+import { CacheManager } from './cache.js';
 
 interface VCInfo {
   className: string;
@@ -49,55 +50,68 @@ function collectViewControllers(items: any[]): VCInfo[] {
 export function registerListViewControllersTool(
   server: McpServer,
   fixedEndpoint?: DeviceEndpoint,
+  cache?: CacheManager,
 ): void {
   server.tool(
     'list_view_controllers',
     'List all UIViewControllers in the current view hierarchy. Returns a deduplicated list with class names, oids, and the view each controller is hosted on.',
     {},
     async () => {
-      let endpoint: DeviceEndpoint;
+      const startMs = Date.now();
+      let cacheHit = false;
+      let hierarchyInfo: any;
 
-      if (fixedEndpoint) {
-        endpoint = fixedEndpoint;
+      const cached = cache?.getHierarchy();
+      if (cached) {
+        cacheHit = true;
+        hierarchyInfo = cached.data;
       } else {
-        const { DeviceDiscovery } = await import('./discovery.js');
-        const discovery = new DeviceDiscovery();
-        const found = await discovery.probeFirst(2000);
-        if (!found) {
-          return {
-            content: [{ type: 'text' as const, text: JSON.stringify({ error: 'No reachable LookinServer found' }) }],
-          };
-        }
-        endpoint = found;
-      }
-
-      const session = new AppSession(endpoint);
-      const bridge = new BridgeClient();
-      try {
-        const responseBuf = await session.request(LookinRequestType.Hierarchy, undefined, 15000);
-        const base64 = responseBuf.toString('base64');
-        const decoded = await bridge.decode(base64);
-
-        const hierarchyInfo = decoded.data;
-        if (!hierarchyInfo || hierarchyInfo.$class !== 'LookinHierarchyInfo') {
-          return {
-            content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Unexpected response: missing LookinHierarchyInfo' }) }],
-          };
+        let endpoint: DeviceEndpoint;
+        if (fixedEndpoint) {
+          endpoint = fixedEndpoint;
+        } else {
+          const { DeviceDiscovery } = await import('./discovery.js');
+          const discovery = new DeviceDiscovery();
+          const found = await discovery.probeFirst(2000);
+          if (!found) {
+            return {
+              content: [{ type: 'text' as const, text: JSON.stringify({ error: 'No reachable LookinServer found' }) }],
+            };
+          }
+          endpoint = found;
         }
 
-        const displayItems: any[] = hierarchyInfo.displayItems ?? [];
-        const viewControllers = collectViewControllers(displayItems);
+        const session = new AppSession(endpoint);
+        const bridge = new BridgeClient();
+        try {
+          const responseBuf = await session.request(LookinRequestType.Hierarchy, undefined, 15000);
+          const base64 = responseBuf.toString('base64');
+          const decoded = await bridge.decode(base64);
 
-        return {
-          content: [{ type: 'text' as const, text: JSON.stringify({ viewControllers }) }],
-        };
-      } catch (err: any) {
-        return {
-          content: [{ type: 'text' as const, text: JSON.stringify({ error: err.message ?? String(err) }) }],
-        };
-      } finally {
-        await session.close();
+          hierarchyInfo = decoded.data;
+          if (!hierarchyInfo || hierarchyInfo.$class !== 'LookinHierarchyInfo') {
+            return {
+              content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Unexpected response: missing LookinHierarchyInfo' }) }],
+            };
+          }
+          cache?.setHierarchy(hierarchyInfo);
+        } catch (err: any) {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({ error: err.message ?? String(err) }) }],
+          };
+        } finally {
+          await session.close();
+        }
       }
+
+      const displayItems: any[] = hierarchyInfo.displayItems ?? [];
+      const viewControllers = collectViewControllers(displayItems);
+      const elapsedMs = Date.now() - startMs;
+      const _meta = CacheManager.buildMeta({ cacheHit, source: cacheHit ? 'cache' : 'live', stalePossible: cached?.stale ?? false, elapsedMs });
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ viewControllers, _meta }) }],
+      };
     },
   );
 }

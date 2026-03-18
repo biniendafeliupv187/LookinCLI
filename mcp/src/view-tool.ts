@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AppSession, LookinRequestType } from './app-session.js';
 import { BridgeClient } from './bridge-client.js';
 import type { DeviceEndpoint } from './discovery.js';
+import { CacheManager } from './cache.js';
 
 /** Flatten a decoded LookinAttributesGroup into a clean structure */
 function toAttrGroup(group: any) {
@@ -31,6 +32,7 @@ function toAttrGroup(group: any) {
 export function registerGetViewTool(
   server: McpServer,
   fixedEndpoint?: DeviceEndpoint,
+  cache?: CacheManager,
 ): void {
   server.tool(
     'get_view',
@@ -43,6 +45,18 @@ export function registerGetViewTool(
         .describe('The layer object identifier (layerOid) of the view to inspect. Get layerOid values from get_hierarchy output.'),
     },
     async ({ oid }) => {
+      const startMs = Date.now();
+
+      // Check cache first
+      const cachedView = cache?.getViewDetail(oid);
+      if (cachedView) {
+        const elapsedMs = Date.now() - startMs;
+        const _meta = CacheManager.buildMeta({ cacheHit: true, source: 'cache', stalePossible: false, elapsedMs });
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ ...cachedView.data, _meta }) }],
+        };
+      }
+
       let endpoint: DeviceEndpoint;
 
       if (fixedEndpoint) {
@@ -106,8 +120,12 @@ export function registerGetViewTool(
           attrGroups,
         };
 
+        cache?.setViewDetail(oid, result);
+        const elapsedMs = Date.now() - startMs;
+        const _meta = CacheManager.buildMeta({ cacheHit: false, source: 'live', stalePossible: false, elapsedMs });
+
         return {
-          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+          content: [{ type: 'text' as const, text: JSON.stringify({ ...result, _meta }) }],
         };
       } catch (err: any) {
         return {

@@ -71,12 +71,12 @@
 
 ## 10. Cache Layer (TDD)
 
-- [ ] 10.1 Write tests: hierarchy cache stores and retrieves by pageKey; view cache stores by pageKey+oid; search index derived from hierarchy
-- [ ] 10.2 Implement `CacheManager`: in-memory Maps for hierarchy, view details, search index; keyed by `deviceId + bundleId + fingerprint`
-- [ ] 10.3 Write tests: cache metadata (`cacheHit`, `source`, `stalePossible`, `elapsedMs`) is present on all read responses
-- [ ] 10.4 Integrate cache metadata into all read tool handlers (`get_hierarchy`, `get_view`, `search`, `list_view_controllers`)
-- [ ] 10.5 Write tests: slow-operation hint appears when first fetch exceeds threshold
-- [ ] 10.6 Implement slow-operation hint: measure elapsed time on live fetches, attach `hint` string to response meta when threshold exceeded
+- [x] 10.1 Write tests: hierarchy cache stores and retrieves by pageKey; view cache stores by pageKey+oid; search index derived from hierarchy
+- [x] 10.2 Implement `CacheManager`: in-memory Maps for hierarchy, view details, search index; keyed by `deviceId + bundleId + fingerprint`
+- [x] 10.3 Write tests: cache metadata (`cacheHit`, `source`, `stalePossible`, `elapsedMs`) is present on all read responses
+- [x] 10.4 Integrate cache metadata into all read tool handlers (`get_hierarchy`, `get_view`, `search`, `list_view_controllers`)
+- [x] 10.5 Write tests: slow-operation hint appears when first fetch exceeds threshold
+- [x] 10.6 Implement slow-operation hint: measure elapsed time on live fetches, attach `hint` string to response meta when threshold exceeded
 
 ## 11. Error Model & Edge Cases
 

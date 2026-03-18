@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AppSession, LookinRequestType } from './app-session.js';
 import { BridgeClient } from './bridge-client.js';
 import type { DeviceEndpoint } from './discovery.js';
+import { CacheManager } from './cache.js';
 
 /** Flattened view node for the hierarchy tree */
 interface ViewNode {
@@ -88,6 +89,7 @@ function toTextLines(nodes: ViewNode[], depth: number = 0): string[] {
 export function registerHierarchyTool(
   server: McpServer,
   fixedEndpoint?: DeviceEndpoint,
+  cache?: CacheManager,
 ): void {
   server.tool(
     'get_hierarchy',
@@ -106,59 +108,93 @@ export function registerHierarchyTool(
         .describe('Maximum tree depth to return (root = 0). Omit for full tree. Use 10 to focus on UIKit container structure, excluding deep RN/Flutter subtrees.'),
     },
     async ({ format, maxDepth }) => {
-      let endpoint: DeviceEndpoint;
+      const startMs = Date.now();
+      let cacheHit = false;
+      let hierarchyInfo: any;
 
-      if (fixedEndpoint) {
-        endpoint = fixedEndpoint;
+      // Check cache first
+      const cached = cache?.getHierarchy();
+      if (cached) {
+        cacheHit = true;
+        hierarchyInfo = cached.data;
       } else {
-        const { DeviceDiscovery } = await import('./discovery.js');
-        const discovery = new DeviceDiscovery();
-        const found = await discovery.probeFirst(2000);
-        if (!found) {
+        let endpoint: DeviceEndpoint;
+        if (fixedEndpoint) {
+          endpoint = fixedEndpoint;
+        } else {
+          const { DeviceDiscovery } = await import('./discovery.js');
+          const discovery = new DeviceDiscovery();
+          const found = await discovery.probeFirst(2000);
+          if (!found) {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    error: 'No reachable LookinServer found on any port',
+                  }),
+                },
+              ],
+            };
+          }
+          endpoint = found;
+        }
+
+        const session = new AppSession(endpoint);
+        const bridge = new BridgeClient();
+        try {
+          const responseBuf = await session.request(
+            LookinRequestType.Hierarchy,
+            undefined,
+            15000,
+          );
+          const base64 = responseBuf.toString('base64');
+          const decoded = await bridge.decode(base64);
+
+          hierarchyInfo = decoded.data;
+          if (!hierarchyInfo || hierarchyInfo.$class !== 'LookinHierarchyInfo') {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    error: 'Unexpected response: missing LookinHierarchyInfo',
+                  }),
+                },
+              ],
+            };
+          }
+          cache?.setHierarchy(hierarchyInfo);
+        } catch (err: any) {
           return {
             content: [
               {
                 type: 'text' as const,
-                text: JSON.stringify({
-                  error: 'No reachable LookinServer found on any port',
-                }),
+                text: JSON.stringify({ error: err.message ?? String(err) }),
               },
             ],
           };
+        } finally {
+          await session.close();
         }
-        endpoint = found;
       }
 
-      const session = new AppSession(endpoint);
-      const bridge = new BridgeClient();
       try {
-        const responseBuf = await session.request(
-          LookinRequestType.Hierarchy,
-          undefined,
-          15000,
-        );
-        const base64 = responseBuf.toString('base64');
-        const decoded = await bridge.decode(base64);
-
-        const hierarchyInfo = decoded.data;
-        if (!hierarchyInfo || hierarchyInfo.$class !== 'LookinHierarchyInfo') {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  error: 'Unexpected response: missing LookinHierarchyInfo',
-                }),
-              },
-            ],
-          };
-        }
 
         const appInfo = hierarchyInfo.appInfo;
         const displayItems: any[] = hierarchyInfo.displayItems ?? [];
         const viewHierarchy = displayItems.map((item) =>
           toViewNode(item, 0, maxDepth),
         );
+
+        const elapsedMs = Date.now() - startMs;
+        const stalePossible = cached?.stale ?? false;
+        const _meta = CacheManager.buildMeta({
+          cacheHit,
+          source: cacheHit ? 'cache' : 'live',
+          stalePossible,
+          elapsedMs,
+        });
 
         if (format === 'json') {
           const result = {
@@ -172,6 +208,7 @@ export function registerHierarchyTool(
               : null,
             serverVersion: hierarchyInfo.serverVersion ?? null,
             viewHierarchy,
+            _meta,
           };
           return {
             content: [{ type: 'text' as const, text: JSON.stringify(result) }],
@@ -183,7 +220,8 @@ export function registerHierarchyTool(
           ? `App: ${appInfo.appName ?? '?'} (${appInfo.appBundleIdentifier ?? '?'}) | Device: ${appInfo.deviceDescription ?? '?'} ${appInfo.osDescription ?? '?'}`
           : 'App: unknown';
         const depthLine = maxDepth !== undefined ? ` | maxDepth=${maxDepth}` : '';
-        const header = appLine + depthLine;
+        const metaLine = ` | cache=${cacheHit ? 'hit' : 'miss'} ${_meta.hint ? '| ' + _meta.hint : ''}`;
+        const header = appLine + depthLine + metaLine;
         const treeLines = toTextLines(viewHierarchy);
         return {
           content: [
@@ -204,8 +242,6 @@ export function registerHierarchyTool(
             },
           ],
         };
-      } finally {
-        await session.close();
       }
     },
   );

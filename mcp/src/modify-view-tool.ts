@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { AppSession, LookinRequestType } from './app-session.js';
 import { BridgeClient } from './bridge-client.js';
 import type { DeviceEndpoint } from './discovery.js';
+import type { CacheManager } from './cache.js';
 
 /**
  * Supported attribute whitelist.
@@ -108,6 +109,7 @@ function buildReadableVersion(attribute: string, value: unknown): string {
 export function registerModifyViewTool(
   server: McpServer,
   fixedEndpoint?: DeviceEndpoint,
+  cache?: CacheManager,
 ): void {
   const supportedAttrs = Object.keys(ATTR_WHITELIST).join(', ');
 
@@ -263,6 +265,9 @@ export function registerModifyViewTool(
           ],
         };
       } finally {
+        // Invalidate caches after modification
+        cache?.invalidateViewDetail(oid);
+        cache?.markHierarchyStale();
         await session.close();
       }
     },

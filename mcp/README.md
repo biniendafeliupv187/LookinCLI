@@ -116,7 +116,7 @@ lookin get_app_info
 
 ### 常见说明
 
-- `get_hierarchy` 支持 `--format text|json`，`--max-depth` 默认是 `10`
+- `get_hierarchy` 支持 `--format text|json`，不传 `--max-depth` 时会全量返回视图层级
 - `lookin init` 用来初始化本地运行环境；当前主要会构建 `lookin-bridge`
 - `lookin init --force` 可用于强制重建初始化产物
 - `modify_view` 当前支持的属性是：`hidden`、`alpha`、`frame`、`backgroundColor`、`text`

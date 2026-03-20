@@ -43,8 +43,7 @@ const hierarchyInputShape = {
     .int()
     .nonnegative()
     .optional()
-    .default(10)
-    .describe('Maximum tree depth to return (root = 0). Defaults to 10 to focus on UIKit containers and avoid overly deep output.'),
+    .describe('Maximum tree depth to return (root = 0). If omitted, returns the full hierarchy.'),
 } satisfies CommandShape;
 
 const screenshotInputShape = {
@@ -107,7 +106,7 @@ export const hierarchyCommand: LookinCommandDefinition<
 > = {
   name: 'get_hierarchy',
   description:
-    'Fetch the iOS view hierarchy from the connected app. Returns app info and a tree of view nodes with class names, frames, visibility, and view controller associations. Use format="text" (default) for a token-efficient indented tree, or format="json" for structured data. maxDepth defaults to 10 to skip overly deep React-Native/Flutter subtrees.',
+    'Fetch the iOS view hierarchy from the connected app. Returns app info and a tree of view nodes with class names, frames, visibility, and view controller associations. Use format="text" (default) for a token-efficient indented tree, or format="json" for structured data. maxDepth is optional; if omitted, the full hierarchy is returned.',
   inputShape: hierarchyInputShape,
   execute: async (args, { service }) => service.getHierarchy(args),
   toCliOutput: (result) =>

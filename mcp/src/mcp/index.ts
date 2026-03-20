@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CacheManager } from './cache.js';
+import { CacheManager } from '../core/cache.js';
 import { registerStatusTool } from './status-tool.js';
 import { registerHierarchyTool } from './hierarchy-tool.js';
 import { registerSearchTool } from './search-tool.js';
@@ -13,7 +13,7 @@ import { registerModifyViewTool } from './modify-view-tool.js';
 import { registerGetAppInfoTool } from './app-info-tool.js';
 
 const server = new McpServer(
-  { name: 'lookin-mcp', version: '0.1.0' },
+  { name: 'lookin-mcp', version: '0.1.1' },
   { capabilities: { tools: {} } },
 );
 

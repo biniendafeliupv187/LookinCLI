@@ -2,14 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { CacheManager } from '../src/cache.js';
-import { registerHierarchyTool } from '../src/hierarchy-tool.js';
-import { registerSearchTool } from '../src/search-tool.js';
-import { registerListViewControllersTool } from '../src/list-view-controllers-tool.js';
-import { registerGetViewTool } from '../src/view-tool.js';
-import { registerGetAppInfoTool } from '../src/app-info-tool.js';
-import { registerReloadTool } from '../src/reload-tool.js';
-import { registerModifyViewTool } from '../src/modify-view-tool.js';
+import { CacheManager } from '../src/core/cache.js';
+import { registerHierarchyTool } from '../src/mcp/hierarchy-tool.js';
+import { registerSearchTool } from '../src/mcp/search-tool.js';
+import { registerListViewControllersTool } from '../src/mcp/list-view-controllers-tool.js';
+import { registerGetViewTool } from '../src/mcp/view-tool.js';
+import { registerGetAppInfoTool } from '../src/mcp/app-info-tool.js';
+import { registerReloadTool } from '../src/mcp/reload-tool.js';
+import { registerModifyViewTool } from '../src/mcp/modify-view-tool.js';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,7 +20,7 @@ const fixtures = JSON.parse(
 );
 
 /** Stub AppSession: returns fixture data */
-vi.mock('../src/app-session.js', () => ({
+vi.mock('../src/core/app-session.js', () => ({
   LookinRequestType: {
     Ping: 200,
     App: 201,
@@ -56,7 +56,7 @@ const fixedEndpoint = { host: '127.0.0.1', port: 47164, transport: 'simulator' a
 
 async function createClientServer(cache: CacheManager) {
   const server = new McpServer(
-    { name: 'test', version: '0.1.0' },
+    { name: 'test', version: '0.1.1' },
     { capabilities: { tools: {} } },
   );
   registerHierarchyTool(server, fixedEndpoint, cache);

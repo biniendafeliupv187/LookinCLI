@@ -1,14 +1,37 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-/** Default path to the lookin-bridge binary (debug build) */
-const DEFAULT_BRIDGE_BIN = resolve(
-  __dirname,
-  '../bridge/.build/x86_64-apple-macosx/debug/lookin-bridge',
-);
+const DEFAULT_BRIDGE_ENV = 'LOOKIN_BRIDGE_BIN';
+
+export function getBridgeBinaryCandidates(): string[] {
+  const bridgeRoot = resolve(__dirname, '../../bridge/.build');
+
+  return [
+    process.env[DEFAULT_BRIDGE_ENV],
+    resolve(bridgeRoot, 'debug/lookin-bridge'),
+    resolve(bridgeRoot, 'release/lookin-bridge'),
+    resolve(bridgeRoot, 'x86_64-apple-macosx/debug/lookin-bridge'),
+    resolve(bridgeRoot, 'x86_64-apple-macosx/release/lookin-bridge'),
+    resolve(bridgeRoot, 'arm64-apple-macosx/debug/lookin-bridge'),
+    resolve(bridgeRoot, 'arm64-apple-macosx/release/lookin-bridge'),
+  ].filter((value): value is string => Boolean(value));
+}
+
+export function resolveBridgeBinaryPath(): string {
+  const existing = getBridgeBinaryCandidates().find((candidate) =>
+    existsSync(candidate),
+  );
+
+  return (
+    existing ??
+    getBridgeBinaryCandidates()[0] ??
+    resolve(__dirname, '../../bridge/.build/debug/lookin-bridge')
+  );
+}
 
 export interface BridgeClientOptions {
   /** Override the path to the lookin-bridge binary */
@@ -32,7 +55,7 @@ export class BridgeClient {
   private timeout: number;
 
   constructor(options?: BridgeClientOptions) {
-    this.bin = options?.bridgeBin ?? DEFAULT_BRIDGE_BIN;
+    this.bin = options?.bridgeBin ?? resolveBridgeBinaryPath();
     this.timeout = options?.timeout ?? 30000;
   }
 

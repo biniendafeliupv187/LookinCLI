@@ -20,7 +20,7 @@ const maxDepth = depthArg !== undefined ? parseInt(depthArg, 10) : undefined;
 
 // 搭建 MCP Server
 const server = new McpServer(
-  { name: "lookin-mcp", version: "0.1.0" },
+  { name: "lookin-mcp", version: "0.1.1" },
   { capabilities: { tools: {} } }
 );
 registerHierarchyTool(server);

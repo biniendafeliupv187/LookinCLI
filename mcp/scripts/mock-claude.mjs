@@ -11,7 +11,7 @@ import { registerGetScreenshotTool } from "../dist/screenshot-tool.js";
 
 // 1. 搭建 MCP Server（和生产 index.ts 一样）
 const server = new McpServer(
-  { name: "lookin-mcp", version: "0.1.0" },
+  { name: "lookin-mcp", version: "0.1.1" },
   { capabilities: { tools: {} } }
 );
 registerStatusTool(server);

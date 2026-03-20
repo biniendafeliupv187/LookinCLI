@@ -5,16 +5,16 @@ import * as path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { FrameEncoder } from '../src/transport.js';
+import { FrameEncoder } from '../src/core/transport.js';
 
-import { CacheManager } from '../src/cache.js';
-import { registerStatusTool } from '../src/status-tool.js';
-import { registerHierarchyTool } from '../src/hierarchy-tool.js';
-import { registerSearchTool } from '../src/search-tool.js';
-import { registerReloadTool } from '../src/reload-tool.js';
-import { registerGetViewTool } from '../src/view-tool.js';
-import { registerGetScreenshotTool } from '../src/screenshot-tool.js';
-import { registerModifyViewTool } from '../src/modify-view-tool.js';
+import { CacheManager } from '../src/core/cache.js';
+import { registerStatusTool } from '../src/mcp/status-tool.js';
+import { registerHierarchyTool } from '../src/mcp/hierarchy-tool.js';
+import { registerSearchTool } from '../src/mcp/search-tool.js';
+import { registerReloadTool } from '../src/mcp/reload-tool.js';
+import { registerGetViewTool } from '../src/mcp/view-tool.js';
+import { registerGetScreenshotTool } from '../src/mcp/screenshot-tool.js';
+import { registerModifyViewTool } from '../src/mcp/modify-view-tool.js';
 
 const fixtures = JSON.parse(
   fs.readFileSync(
@@ -80,7 +80,7 @@ describe('E2E Integration', () => {
 
   async function setupE2EMcpPair(mockPort: number) {
     mcpServer = new McpServer(
-      { name: 'lookin-mcp', version: '0.1.0' },
+      { name: 'lookin-mcp', version: '0.1.1' },
       { capabilities: { tools: {} } },
     );
     const cache = new CacheManager();
@@ -99,7 +99,7 @@ describe('E2E Integration', () => {
     registerGetScreenshotTool(mcpServer, mockEndpoint);
     registerModifyViewTool(mcpServer, mockEndpoint, cache);
 
-    client = new Client({ name: 'test-client', version: '0.1.0' });
+    client = new Client({ name: 'test-client', version: '0.1.1' });
     const [ct, st] = InMemoryTransport.createLinkedPair();
     await Promise.all([mcpServer.connect(st), client.connect(ct)]);
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FrameEncoder, FrameDecoder, type ParsedFrame } from '../src/transport.js';
+import { FrameEncoder, FrameDecoder, type ParsedFrame } from '../src/core/transport.js';
 
 describe('FrameEncoder', () => {
   it('produces a 16-byte header + payload buffer', () => {

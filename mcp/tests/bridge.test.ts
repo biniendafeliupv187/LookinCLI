@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BridgeClient } from '../src/bridge-client.js';
+import { BridgeClient } from '../src/core/bridge-client.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BRIDGE_BIN = resolve(

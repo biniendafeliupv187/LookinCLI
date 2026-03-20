@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as net from 'node:net';
-import { AppSession } from '../src/app-session.js';
-import { FrameEncoder } from '../src/transport.js';
-import { BridgeClient } from '../src/bridge-client.js';
+import { AppSession } from '../src/core/app-session.js';
+import { FrameEncoder } from '../src/core/transport.js';
+import { BridgeClient } from '../src/core/bridge-client.js';
 
 /**
  * Creates a minimal TCP server that speaks the Peertalk frame protocol.

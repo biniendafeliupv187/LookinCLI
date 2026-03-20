@@ -4,7 +4,7 @@ import {
   USBMuxEndpointProvider,
   DeviceDiscovery,
   type DeviceEndpoint,
-} from '../src/discovery.js';
+} from '../src/core/discovery.js';
 
 describe('SimulatorEndpointProvider', () => {
   it('returns localhost endpoints with ports 47164-47169', () => {

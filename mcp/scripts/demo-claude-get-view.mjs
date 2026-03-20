@@ -14,7 +14,7 @@ import { registerGetViewTool } from "../dist/view-tool.js";
 const [, , oidArg] = process.argv;
 
 const server = new McpServer(
-  { name: "lookin-mcp", version: "0.1.0" },
+  { name: "lookin-mcp", version: "0.1.1" },
   { capabilities: { tools: {} } }
 );
 registerHierarchyTool(server);

@@ -1,17 +1,28 @@
 {
   "name": "lookin-mcp-server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP Server for Lookin iOS UI inspection",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/mcp/index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "lookin-mcp": "dist/mcp/index.js",
+    "lookin": "dist/cli/index.js"
+  },
   "scripts": {
     "build": "tsc",
+    "build:bridge": "swift build --package-path bridge",
+    "start": "node dist/mcp/index.js",
+    "cli": "node dist/cli/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1"
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

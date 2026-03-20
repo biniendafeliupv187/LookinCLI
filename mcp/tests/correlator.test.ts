@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { RequestCorrelator } from '../src/correlator.js';
+import { RequestCorrelator } from '../src/core/correlator.js';
 
 describe('RequestCorrelator', () => {
   beforeEach(() => {

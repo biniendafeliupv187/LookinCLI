@@ -10,7 +10,7 @@ import { registerHierarchyTool } from "../dist/hierarchy-tool.js";
 import { registerGetViewTool } from "../dist/view-tool.js";
 import { registerGetScreenshotTool } from "../dist/screenshot-tool.js";
 
-const server = new McpServer({ name: "lookin-mcp", version: "0.1.0" }, { capabilities: { tools: {} } });
+const server = new McpServer({ name: "lookin-mcp", version: "0.1.1" }, { capabilities: { tools: {} } });
 registerHierarchyTool(server);
 registerGetViewTool(server);
 registerGetScreenshotTool(server);

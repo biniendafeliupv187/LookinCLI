@@ -3,11 +3,12 @@ import * as net from 'node:net';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { FrameEncoder } from '../src/transport.js';
-import { registerStatusTool } from '../src/status-tool.js';
-import { registerHierarchyTool } from '../src/hierarchy-tool.js';
-import { registerGetViewTool } from '../src/view-tool.js';
-import { LookinError, classifyError, errorResponse } from '../src/errors.js';
+import { FrameEncoder } from '../src/core/transport.js';
+import { registerStatusTool } from '../src/mcp/status-tool.js';
+import { registerHierarchyTool } from '../src/mcp/hierarchy-tool.js';
+import { registerGetViewTool } from '../src/mcp/view-tool.js';
+import { LookinError, classifyError, errorResponse } from '../src/core/errors.js';
+import { DeviceDiscovery } from '../src/core/discovery.js';
 
 // ─── Helpers ───
 
@@ -19,11 +20,11 @@ async function setupMcpPair(
   registerFn: (server: McpServer) => void,
 ): Promise<{ client: Client; server: McpServer }> {
   const server = new McpServer(
-    { name: 'test', version: '0.1.0' },
+    { name: 'test', version: '0.1.1' },
     { capabilities: { tools: {} } },
   );
   registerFn(server);
-  const client = new Client({ name: 'test-client', version: '0.1.0' });
+  const client = new Client({ name: 'test-client', version: '0.1.1' });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(st), client.connect(ct)]);
   return { client, server };
@@ -276,39 +277,35 @@ describe('discovery failure structured error', () => {
   });
 
   it('status returns DISCOVERY_NO_DEVICE when no endpoint and discovery fails', async () => {
-    // Mock discovery to return null
-    const { registerStatusTool: registerFn } = await import('../src/status-tool.js');
+    vi.spyOn(DeviceDiscovery.prototype, 'probeFirst').mockResolvedValueOnce(null);
+    const { registerStatusTool: registerFn } = await import('../src/mcp/status-tool.js');
     mcpServer = new McpServer(
-      { name: 'test', version: '0.1.0' },
+      { name: 'test', version: '0.1.1' },
       { capabilities: { tools: {} } },
     );
-    // Register without fixed endpoint — relies on discovery.
-    // We mock discovery to always return null.
-    registerFn(mcpServer); // no fixedEndpoint → triggers discovery
+    registerFn(mcpServer);
 
-    client = new Client({ name: 'test-client', version: '0.1.0' });
+    client = new Client({ name: 'test-client', version: '0.1.1' });
     const [ct, st] = InMemoryTransport.createLinkedPair();
     await Promise.all([mcpServer.connect(st), client.connect(ct)]);
 
-    // In CI/test, discovery's probeFirst will find nothing on any port
-    // This may take a while due to port probing — use a timeout
     const result = await client.callTool({ name: 'status' });
     const data = parseToolResult(result);
 
-    // Either connected=false+error format (current) or code-based
     expect(data.connected).toBe(false);
     expect(data.code).toBe('DISCOVERY_NO_DEVICE');
   }, 30000);
 
   it('get_hierarchy returns DISCOVERY_NO_DEVICE when no endpoint found', async () => {
-    const { registerHierarchyTool: registerFn } = await import('../src/hierarchy-tool.js');
+    vi.spyOn(DeviceDiscovery.prototype, 'probeFirst').mockResolvedValueOnce(null);
+    const { registerHierarchyTool: registerFn } = await import('../src/mcp/hierarchy-tool.js');
     mcpServer = new McpServer(
-      { name: 'test', version: '0.1.0' },
+      { name: 'test', version: '0.1.1' },
       { capabilities: { tools: {} } },
     );
     registerFn(mcpServer); // no fixedEndpoint
 
-    client = new Client({ name: 'test-client', version: '0.1.0' });
+    client = new Client({ name: 'test-client', version: '0.1.1' });
     const [ct, st] = InMemoryTransport.createLinkedPair();
     await Promise.all([mcpServer.connect(st), client.connect(ct)]);
 

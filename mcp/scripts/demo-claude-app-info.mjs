@@ -4,7 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { registerGetAppInfoTool } from '../dist/app-info-tool.js';
 
-const server = new McpServer({ name: 'lookin-mcp', version: '0.1.0' }, { capabilities: { tools: {} } });
+const server = new McpServer({ name: 'lookin-mcp', version: '0.1.1' }, { capabilities: { tools: {} } });
 registerGetAppInfoTool(server);
 
 const client = new Client({ name: 'claude-mock', version: '1.0.0' });

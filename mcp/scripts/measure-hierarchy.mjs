@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerHierarchyTool } from "../dist/hierarchy-tool.js";
 
-const server = new McpServer({ name: "lookin-mcp", version: "0.1.0" }, { capabilities: { tools: {} } });
+const server = new McpServer({ name: "lookin-mcp", version: "0.1.1" }, { capabilities: { tools: {} } });
 registerHierarchyTool(server);
 const client = new Client({ name: "test", version: "1.0.0" });
 const [ct, st] = InMemoryTransport.createLinkedPair();

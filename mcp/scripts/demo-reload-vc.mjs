@@ -4,7 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerReloadTool } from "../dist/reload-tool.js";
 import { registerListViewControllersTool } from "../dist/list-view-controllers-tool.js";
 
-const server = new McpServer({ name: "lookin-mcp", version: "0.1.0" }, { capabilities: { tools: {} } });
+const server = new McpServer({ name: "lookin-mcp", version: "0.1.1" }, { capabilities: { tools: {} } });
 registerReloadTool(server);
 registerListViewControllersTool(server);
 

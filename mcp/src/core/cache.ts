@@ -75,6 +75,16 @@ export class CacheManager {
     return { ...this.hierarchy, cacheHit };
   }
 
+  peekHierarchy(): CacheEntry<any> | null {
+    if (!this.hierarchy) return null;
+    if (this.isExpired(this.hierarchy)) {
+      this.hierarchy = null;
+      this.searchIndex = null;
+      return null;
+    }
+    return { ...this.hierarchy };
+  }
+
   markHierarchyStale(): void {
     if (this.hierarchy) {
       this.hierarchy.stale = true;
@@ -97,6 +107,16 @@ export class CacheManager {
     const cacheHit = entry.accessed;
     entry.accessed = true;
     return { ...entry, cacheHit };
+  }
+
+  peekViewDetail(oid: number): CacheEntry<any> | null {
+    const entry = this.viewDetails.get(oid);
+    if (!entry) return null;
+    if (this.isExpired(entry)) {
+      this.viewDetails.delete(oid);
+      return null;
+    }
+    return { ...entry };
   }
 
   invalidateViewDetail(oid: number): void {

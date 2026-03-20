@@ -5,8 +5,8 @@ import * as path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { FrameEncoder } from '../src/transport.js';
-import { registerGetAppInfoTool } from '../src/app-info-tool.js';
+import { FrameEncoder } from '../src/core/transport.js';
+import { registerGetAppInfoTool } from '../src/mcp/app-info-tool.js';
 
 const fixtures = JSON.parse(
   fs.readFileSync(
@@ -63,7 +63,7 @@ describe('get_app_info MCP tool', () => {
 
   async function setupMcpPair(mockPort: number) {
     mcpServer = new McpServer(
-      { name: 'lookin-mcp', version: '0.1.0' },
+      { name: 'lookin-mcp', version: '0.1.1' },
       { capabilities: { tools: {} } },
     );
     registerGetAppInfoTool(mcpServer, {
@@ -71,7 +71,7 @@ describe('get_app_info MCP tool', () => {
       port: mockPort,
       transport: 'simulator' as const,
     });
-    client = new Client({ name: 'test-client', version: '0.1.0' });
+    client = new Client({ name: 'test-client', version: '0.1.1' });
     const [ct, st] = InMemoryTransport.createLinkedPair();
     await Promise.all([mcpServer.connect(st), client.connect(ct)]);
   }
@@ -156,7 +156,7 @@ describe('get_app_info MCP tool', () => {
 
   it('returns structured error when server is unreachable', async () => {
     mcpServer = new McpServer(
-      { name: 'lookin-mcp', version: '0.1.0' },
+      { name: 'lookin-mcp', version: '0.1.1' },
       { capabilities: { tools: {} } },
     );
     registerGetAppInfoTool(mcpServer, {
@@ -164,7 +164,7 @@ describe('get_app_info MCP tool', () => {
       port: 19997,
       transport: 'simulator' as const,
     });
-    client = new Client({ name: 'test-client', version: '0.1.0' });
+    client = new Client({ name: 'test-client', version: '0.1.1' });
     const [ct, st] = InMemoryTransport.createLinkedPair();
     await Promise.all([mcpServer.connect(st), client.connect(ct)]);
 

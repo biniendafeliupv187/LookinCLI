@@ -24,7 +24,7 @@ import { registerModifyViewTool } from "../dist/modify-view-tool.js";
 
 // ── 搭建 MCP Server + Client ──
 const server = new McpServer(
-  { name: "lookin-mcp", version: "0.1.0" },
+  { name: "lookin-mcp", version: "0.1.1" },
   { capabilities: { tools: {} } }
 );
 registerStatusTool(server);

@@ -9,7 +9,7 @@ import {
   encodeUsbmuxPacket,
   parseUsbmuxPacket,
   swapPort,
-} from '../src/usbmuxd.js';
+} from '../src/core/usbmuxd.js';
 
 describe('usbmuxd packet encoding', () => {
   it('swapPort converts host port to network byte order uint16', () => {

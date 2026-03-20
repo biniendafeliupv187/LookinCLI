@@ -18,7 +18,7 @@ import { registerGetAppInfoTool } from "../dist/app-info-tool.js";
 const cache = new CacheManager(5000);
 
 const server = new McpServer(
-  { name: "lookin-mcp", version: "0.1.0" },
+  { name: "lookin-mcp", version: "0.1.1" },
   { capabilities: { tools: {} } }
 );
 registerHierarchyTool(server, undefined, cache);

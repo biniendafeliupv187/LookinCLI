@@ -5,8 +5,8 @@ import * as path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { FrameEncoder } from '../src/transport.js';
-import { registerSearchTool } from '../src/search-tool.js';
+import { FrameEncoder } from '../src/core/transport.js';
+import { registerSearchTool } from '../src/mcp/search-tool.js';
 
 const fixtures = JSON.parse(
   fs.readFileSync(
@@ -58,7 +58,7 @@ describe('search MCP tool', () => {
 
   async function setupMcpPair(mockPort: number) {
     mcpServer = new McpServer(
-      { name: 'lookin-mcp', version: '0.1.0' },
+      { name: 'lookin-mcp', version: '0.1.1' },
       { capabilities: { tools: {} } },
     );
     registerSearchTool(mcpServer, {
@@ -66,7 +66,7 @@ describe('search MCP tool', () => {
       port: mockPort,
       transport: 'simulator' as const,
     });
-    client = new Client({ name: 'test-client', version: '0.1.0' });
+    client = new Client({ name: 'test-client', version: '0.1.1' });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([
       mcpServer.connect(serverTransport),

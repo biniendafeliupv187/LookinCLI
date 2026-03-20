@@ -3,8 +3,8 @@ import * as net from 'node:net';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { FrameEncoder } from '../src/transport.js';
-import { registerStatusTool } from '../src/status-tool.js';
+import { FrameEncoder } from '../src/core/transport.js';
+import { registerStatusTool } from '../src/mcp/status-tool.js';
 
 /** Fixture: LookinConnectionResponseAttachment with serverVersion=7, appIsInBackground=false */
 const PING_RESPONSE_B64 =
@@ -53,7 +53,7 @@ describe('status MCP tool', () => {
   /** Helper to create a connected MCP client + server pair */
   async function setupMcpPair(mockPort: number) {
     mcpServer = new McpServer(
-      { name: 'lookin-mcp', version: '0.1.0' },
+      { name: 'lookin-mcp', version: '0.1.1' },
       { capabilities: { tools: {} } },
     );
 
@@ -64,7 +64,7 @@ describe('status MCP tool', () => {
       transport: 'simulator' as const,
     });
 
-    client = new Client({ name: 'test-client', version: '0.1.0' });
+    client = new Client({ name: 'test-client', version: '0.1.1' });
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([
@@ -103,7 +103,7 @@ describe('status MCP tool', () => {
 
   it('status reports error when server is unreachable', async () => {
     mcpServer = new McpServer(
-      { name: 'lookin-mcp', version: '0.1.0' },
+      { name: 'lookin-mcp', version: '0.1.1' },
       { capabilities: { tools: {} } },
     );
 
@@ -113,7 +113,7 @@ describe('status MCP tool', () => {
       transport: 'simulator' as const,
     });
 
-    client = new Client({ name: 'test-client', version: '0.1.0' });
+    client = new Client({ name: 'test-client', version: '0.1.1' });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([
       mcpServer.connect(serverTransport),

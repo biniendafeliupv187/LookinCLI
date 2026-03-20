@@ -1,6 +1,6 @@
 {
-  "name": "@lookin/cli",
-  "version": "0.1.3",
+  "name": "@biniendafeliupv/lookin-cli",
+  "version": "0.1.4",
   "description": "CLI and MCP server for Lookin-based iOS UI inspection",
   "type": "module",
   "main": "dist/mcp/index.js",

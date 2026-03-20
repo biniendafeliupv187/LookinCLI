@@ -65,10 +65,10 @@ lookin --help
 
 ### 未来发布到 npm 后安装
 
-如果发布为 npm 包，例如 `@lookin/cli`，可以直接：
+如果发布为 npm 包，例如 `@biniendafeliupv/lookin-cli`，可以直接：
 
 ```bash
-npm install -g @lookin/cli
+npm install -g @biniendafeliupv/lookin-cli
 lookin init
 ```
 

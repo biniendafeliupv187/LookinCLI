@@ -1,0 +1,23 @@
+{
+  "skill_name": "lookin-mcp-router",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我看下当前连接上的 iOS App 现在界面层级，先给我一个适合人看的精简树，不用 JSON。",
+      "expected_output": "The skill should trigger and route to get_hierarchy with format text, preferring a readable hierarchy instead of structured JSON.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "页面上有很多 UIButton，我想先快速定位所有 UIButton，再挑一个继续看它的详细属性。",
+      "expected_output": "The skill should trigger and prefer search first, then use the discovered layerOid for get_view instead of starting with an unrelated tool.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "把这个 label 的文字临时改成 Welcome Back，如果没有合适的 id 先告诉我该怎么拿。",
+      "expected_output": "The skill should trigger, explain that text mutation uses modify_view with oid rather than layerOid, and retrieve identifiers before modifying if needed.",
+      "files": []
+    }
+  ]
+}

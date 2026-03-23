@@ -1,0 +1,32 @@
+{
+  "eval_id": 2,
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "第一个有效 tool 调用是 search（而不是直接拉 get_hierarchy）",
+      "passed": true,
+      "evidence": "Tool 1 是 search，理由是 SKILL.md 规则 #2：已知 class name 优先用 search"
+    },
+    {
+      "text": "search 的 query 包含 \"UIButton\"",
+      "passed": true,
+      "evidence": "参数为 className: \"UIButton\""
+    },
+    {
+      "text": "后续调用了 get_view 查看某个按钮的详细属性",
+      "passed": true,
+      "evidence": "Tool 2 是 get_view"
+    },
+    {
+      "text": "get_view 传入的是 layerOid（而不是 oid）",
+      "passed": true,
+      "evidence": "明确说明 get_view 需要 layerOid，并引用了 SKILL.md 中的标识符规则"
+    }
+  ],
+  "summary": {
+    "passed": 4,
+    "failed": 0,
+    "total": 4,
+    "pass_rate": 1.0
+  }
+}

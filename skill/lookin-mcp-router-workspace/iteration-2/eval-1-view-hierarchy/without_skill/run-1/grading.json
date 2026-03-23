@@ -1,0 +1,9 @@
+{
+  "eval_id": 1, "config": "without_skill",
+  "expectations": [
+    {"text": "调用了 get_hierarchy tool", "passed": true, "evidence": "Tool 2 是 get_hierarchy"},
+    {"text": "get_hierarchy 使用了 format: \"text\" 而不是 \"json\"", "passed": false, "evidence": "参数写为 'none'，未指定 format"},
+    {"text": "没有先调用 status（用户没有提连接问题）", "passed": false, "evidence": "Tool 1 是 status，用于确认连接，但用户未提连接问题"}
+  ],
+  "summary": {"passed": 1, "failed": 2, "total": 3, "pass_rate": 0.333}
+}

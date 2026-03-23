@@ -1,0 +1,27 @@
+{
+  "eval_id": 3,
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "明确说明修改 text 需要 oid 而不是 layerOid",
+      "passed": true,
+      "evidence": "明确引用 SKILL.md 规则：text 用 oid，其他属性用 layerOid"
+    },
+    {
+      "text": "没有在没有 oid 的情况下直接调用 modify_view",
+      "passed": true,
+      "evidence": "先调 search 拿到 oid，再调 modify_view"
+    },
+    {
+      "text": "提示用户可以通过 get_hierarchy 或 search 拿到 oid",
+      "passed": true,
+      "evidence": "明确提供了 search 和 get_hierarchy 两条路径"
+    }
+  ],
+  "summary": {
+    "passed": 3,
+    "failed": 0,
+    "total": 3,
+    "pass_rate": 1.0
+  }
+}

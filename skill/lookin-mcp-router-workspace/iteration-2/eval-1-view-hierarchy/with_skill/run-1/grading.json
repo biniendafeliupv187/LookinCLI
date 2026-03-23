@@ -1,0 +1,9 @@
+{
+  "eval_id": 1, "config": "with_skill",
+  "expectations": [
+    {"text": "调用了 get_hierarchy tool", "passed": true, "evidence": "单步调用 get_hierarchy，无多余步骤"},
+    {"text": "get_hierarchy 使用了 format: \"text\" 而不是 \"json\"", "passed": true, "evidence": "SKILL.md 规则 4 引导，显式传 format: text"},
+    {"text": "没有先调用 status（用户没有提连接问题）", "passed": true, "evidence": "直接调 get_hierarchy，未调 status"}
+  ],
+  "summary": {"passed": 3, "failed": 0, "total": 3, "pass_rate": 1.0}
+}

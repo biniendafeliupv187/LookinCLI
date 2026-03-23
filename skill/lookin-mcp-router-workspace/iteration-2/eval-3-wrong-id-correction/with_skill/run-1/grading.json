@@ -1,0 +1,9 @@
+{
+  "eval_id": 3, "config": "with_skill",
+  "expectations": [
+    {"text": "明确指出用户提供的是 layerOid，但修改 text 需要的是 oid，两者不同", "passed": true, "evidence": "明确引用标识符规则表说明 text 改动用 oid，其他属性用 layerOid"},
+    {"text": "没有直接用 layerOid 调用 modify_view 修改 text", "passed": true, "evidence": "先用 search 获取 oid，再调 modify_view"},
+    {"text": "提示用户如何获取正确的 oid（通过 get_hierarchy 或 search）", "passed": true, "evidence": "提示通过 search 查内存地址来拿 oid"}
+  ],
+  "summary": {"passed": 3, "failed": 0, "total": 3, "pass_rate": 1.0}
+}

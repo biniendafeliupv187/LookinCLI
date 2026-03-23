@@ -1,0 +1,19 @@
+{
+  "eval_id": 1,
+  "eval_name": "view-hierarchy",
+  "prompt": "帮我看下当前连接上的 iOS App 现在界面层级，先给我一个适合人看的精简树，不用 JSON。",
+  "assertions": [
+    {
+      "id": "calls-get-hierarchy",
+      "text": "调用了 get_hierarchy tool"
+    },
+    {
+      "id": "uses-text-format",
+      "text": "get_hierarchy 使用了 format: \"text\" 而不是 \"json\""
+    },
+    {
+      "id": "no-status-first",
+      "text": "没有先调用 status（用户没有提连接问题）"
+    }
+  ]
+}

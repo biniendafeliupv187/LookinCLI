@@ -1,0 +1,27 @@
+{
+  "eval_id": 1,
+  "config": "without_skill",
+  "expectations": [
+    {
+      "text": "调用了 get_hierarchy tool",
+      "passed": true,
+      "evidence": "描述了调用 get_hierarchy 作为主要工具"
+    },
+    {
+      "text": "get_hierarchy 使用了 format: \"text\" 而不是 \"json\"",
+      "passed": false,
+      "evidence": "描述为 'no parameters needed'，未指定 format 参数，也未提及 text vs json 的区别"
+    },
+    {
+      "text": "没有先调用 status（用户没有提连接问题）",
+      "passed": true,
+      "evidence": "没有提到先调 status"
+    }
+  ],
+  "summary": {
+    "passed": 2,
+    "failed": 1,
+    "total": 3,
+    "pass_rate": 0.667
+  }
+}

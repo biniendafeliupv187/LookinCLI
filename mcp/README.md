@@ -120,11 +120,17 @@ lookin get_app_info
 - `lookin init` 用来初始化本地运行环境；当前主要会构建 `lookin-bridge`
 - `lookin init --force` 可用于强制重建初始化产物
 - `modify_view` 当前支持的属性是：`hidden`、`alpha`、`frame`、`backgroundColor`、`text`
+- `oid` 是 view object id，`layerOid` 是 layer object id；两者不是一回事
+- 修改 `text` 时必须传当前节点的 `oid`
+- 修改 `hidden`、`alpha`、`frame`、`backgroundColor` 时必须传当前节点的 `layerOid`
+- `oid` / `layerOid` 只对当前这次 app 运行和当前 hierarchy 有效，页面重建、列表复用、app 重启后都可能变化；不要长期保存旧值直接复用
+- 如果你只有 class name、文案或大概位置，先用 `search` 或 `get_hierarchy` 找到这一次的正确 `oid` / `layerOid`，再调用 `get_view` / `modify_view`
 - `frame`、`backgroundColor` 这类参数可以传 JSON 字符串，例如：
 - CLI 默认是“一次命令一次进程”，所以缓存只在单次命令执行期间有效，不能跨多次 `lookin ...` 调用复用
 - 如果你希望连续多次查询都用上缓存，优先使用常驻的 `lookin-mcp`
 
 ```bash
+lookin modify_view --oid 415 --attribute text --value "hello"
 lookin modify_view --oid 42 --attribute frame --value "[0,0,120,44]"
 ```
 

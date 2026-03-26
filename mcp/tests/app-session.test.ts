@@ -90,6 +90,36 @@ describe('AppSession', () => {
     await session.close();
   });
 
+  it('connectViaTcp rejects with timeout error when TCP handshake hangs', async () => {
+    // Create a raw TCP socket that listens but never accepts (SYN backlog fills)
+    const blockingServer = net.createServer();
+    blockingServer.maxConnections = 0; // refuse new connections at OS level
+    await new Promise<void>((resolve) => {
+      blockingServer.listen(0, '127.0.0.1', resolve);
+    });
+    const port = (blockingServer.address() as net.AddressInfo).port;
+    // Pause accepting to simulate a hanging handshake
+    blockingServer.close();
+
+    // Use a non-routable IP to ensure the TCP SYN never gets a SYN-ACK.
+    // 192.0.2.1 is TEST-NET-1 (RFC 5737), packets are silently dropped.
+    const session = new AppSession(
+      { host: '192.0.2.1', port: 47175, transport: 'simulator' },
+      undefined,
+      { connectTimeoutMs: 300 },
+    );
+
+    try {
+      const start = Date.now();
+      await expect(session.ping(10_000)).rejects.toThrow(/connect.*timeout/i);
+      const elapsed = Date.now() - start;
+      // Should timeout around 300ms, not wait for OS-level timeout (75-120s)
+      expect(elapsed).toBeLessThan(2000);
+    } finally {
+      await session.close();
+    }
+  }, 10_000);
+
   it('close cleans up TCP connection', async () => {
     const { server, port } = await createMockLookinServer(
       'YnBsaXN0MDDUAQIDBAUGBwpYJHZlcnNpb25ZJGFyY2hpdmVyVCR0b3BYJG9iamVjdHMSAAGGoF8QD05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGkCwwdHlUkbnVsbNgNDg8QERITFBUWFxgZGhUYXxAQY3VycmVudERhdGFDb3VudF8QE2xvb2tpblNlcnZlclZlcnNpb25WJGNsYXNzUTBfEBFhcHBJc0luQmFja2dyb3VuZFExXmRhdGFUb3RhbENvdW50VWVycm9ygAIQB4ADgAAIEACAAoAAEAHSHyAhIlokY2xhc3NuYW1lWCRjbGFzc2VzXxAiTG9va2luQ29ubmVjdGlvblJlc3BvbnNlQXR0YWNobWVudKMjJCVfECJMb29raW5Db25uZWN0aW9uUmVzcG9uc2VBdHRhY2htZW50XxAaTG9va2luQ29ubmVjdGlvbkF0dGFjaG1lbnRYTlNPYmplY3QACAARABoAJAApADIANwBJAEwAUQBTAFgAXgBvAIIAmACfAKEAtQC3AMYAzADOANAA0gDUANUA1wDZANsA3QDiAO0A9gEbAR8BRAFhAAAAAAAAAgEAAAAAAAAAJgAAAAAAAAAAAAAAAAAAAWo=',

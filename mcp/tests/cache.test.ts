@@ -240,6 +240,51 @@ describe('CacheManager', () => {
     });
   });
 
+  // ─── viewDetails cleared on hierarchy refresh ───
+
+  describe('viewDetails cleared on setHierarchy', () => {
+    it('clears all viewDetails when hierarchy is refreshed', () => {
+      cache.setViewDetail(42, { oid: 42 });
+      cache.setViewDetail(99, { oid: 99 });
+      expect(cache.getViewDetail(42)).not.toBeNull();
+
+      cache.setHierarchy({ $class: 'LookinHierarchyInfo', displayItems: [] });
+
+      expect(cache.getViewDetail(42)).toBeNull();
+      expect(cache.getViewDetail(99)).toBeNull();
+    });
+  });
+
+  // ─── viewDetails max-size cap ───
+
+  describe('viewDetails max-size cap', () => {
+    it('evicts oldest entries when exceeding max size', () => {
+      const smallCache = new CacheManager(30_000, 5);
+
+      // Add 5 entries (fills up)
+      for (let i = 1; i <= 5; i++) {
+        smallCache.setViewDetail(i, { oid: i });
+      }
+      expect(smallCache.getViewDetail(1)).not.toBeNull();
+
+      // Add a 6th — oldest (oid=1) should be evicted
+      smallCache.setViewDetail(6, { oid: 6 });
+      expect(smallCache.getViewDetail(1)).toBeNull();
+      expect(smallCache.getViewDetail(6)).not.toBeNull();
+    });
+
+    it('does not evict when under max size', () => {
+      const smallCache = new CacheManager(30_000, 5);
+      for (let i = 1; i <= 5; i++) {
+        smallCache.setViewDetail(i, { oid: i });
+      }
+      // All 5 should still be present
+      for (let i = 1; i <= 5; i++) {
+        expect(smallCache.getViewDetail(i)).not.toBeNull();
+      }
+    });
+  });
+
   // ─── TTL auto-expiry ───
 
   describe('TTL auto-expiry', () => {

@@ -26,18 +26,26 @@ export const LookinRequestType = {
  * Manages a TCP connection to a single LookinServer instance.
  * Handles frame encoding/decoding, request correlation, and bridge decode.
  */
+export interface AppSessionOptions {
+  connectTimeoutMs?: number;
+}
+
+const DEFAULT_CONNECT_TIMEOUT_MS = 5000;
+
 export class AppSession {
   private endpoint: DeviceEndpoint;
   private socket: net.Socket | null = null;
   private decoder = new FrameDecoder();
   private correlator = new RequestCorrelator();
-  private bridge = new BridgeClient();
+  private bridge: BridgeClient;
   private connected = false;
   private closed = false;
+  private readonly connectTimeoutMs: number;
 
-  constructor(endpoint: DeviceEndpoint, bridgeClient?: BridgeClient) {
+  constructor(endpoint: DeviceEndpoint, bridgeClient?: BridgeClient, options?: AppSessionOptions) {
     this.endpoint = endpoint;
-    if (bridgeClient) this.bridge = bridgeClient;
+    this.bridge = bridgeClient ?? new BridgeClient();
+    this.connectTimeoutMs = options?.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
 
     this.decoder.onFrame = (frame) => {
       this.correlator.resolve(frame.type, frame.tag, frame.payload);
@@ -62,11 +70,24 @@ export class AppSession {
   /** Direct TCP connection (simulator) */
   private connectViaTcp(): Promise<void> {
     return new Promise((resolve, reject) => {
+      let settled = false;
       this.socket = new net.Socket();
 
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          this.socket?.destroy();
+          reject(new Error(`Connect timeout after ${this.connectTimeoutMs}ms`));
+        }
+      }, this.connectTimeoutMs);
+
       this.socket.connect(this.endpoint.port, this.endpoint.host, () => {
-        this.connected = true;
-        resolve();
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          this.connected = true;
+          resolve();
+        }
       });
 
       this.socket.on('data', (data) => {
@@ -76,7 +97,11 @@ export class AppSession {
       this.socket.on('error', (err) => {
         this.connected = false;
         this.correlator.rejectAll(err);
-        reject(err);
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(err);
+        }
       });
 
       this.socket.on('close', () => {

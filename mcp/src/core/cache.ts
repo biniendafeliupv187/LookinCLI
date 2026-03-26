@@ -32,6 +32,9 @@ const SLOW_THRESHOLD_MS = 3000;
 /** Default TTL for cache entries */
 const DEFAULT_TTL_MS = 30_000;
 
+/** Default max number of cached view details */
+const DEFAULT_MAX_VIEW_DETAILS = 500;
+
 /**
  * In-memory cache for hierarchy, view details, and search index.
  * Shared across tool invocations within the MCP server process.
@@ -45,9 +48,11 @@ export class CacheManager {
   private viewDetails = new Map<number, CacheEntry<any>>();
   private searchIndex: SearchIndexItem[] | null = null;
   private readonly ttlMs: number;
+  private readonly maxViewDetails: number;
 
-  constructor(ttlMs: number = DEFAULT_TTL_MS) {
+  constructor(ttlMs: number = DEFAULT_TTL_MS, maxViewDetails: number = DEFAULT_MAX_VIEW_DETAILS) {
     this.ttlMs = ttlMs;
+    this.maxViewDetails = maxViewDetails;
   }
 
   /** Check if a cache entry has expired */
@@ -59,7 +64,8 @@ export class CacheManager {
 
   setHierarchy(data: any): void {
     this.hierarchy = { data, storedAt: Date.now(), stale: false, accessed: false };
-    this.searchIndex = null; // invalidate derived search index
+    this.searchIndex = null;
+    this.viewDetails.clear(); // old OIDs are invalid after hierarchy refresh
   }
 
   getHierarchy(): (CacheEntry<any> & { cacheHit: boolean }) | null {
@@ -95,6 +101,11 @@ export class CacheManager {
 
   setViewDetail(oid: number, data: any): void {
     this.viewDetails.set(oid, { data, storedAt: Date.now(), stale: false, accessed: false });
+    if (this.viewDetails.size > this.maxViewDetails) {
+      // Evict oldest entry (Map iteration order = insertion order)
+      const oldest = this.viewDetails.keys().next().value;
+      if (oldest !== undefined) this.viewDetails.delete(oldest);
+    }
   }
 
   getViewDetail(oid: number): (CacheEntry<any> & { cacheHit: boolean }) | null {

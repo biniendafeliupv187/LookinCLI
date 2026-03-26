@@ -508,19 +508,7 @@ export class LookinCliService {
           boundsValue: detail.boundsValue ?? null,
           hiddenValue: detail.hiddenValue ?? null,
           alphaValue: detail.alphaValue ?? null,
-          attributesGroupList: (detail.attributesGroupList ?? []).map(
-            (group: any) => ({
-              identifier: group.identifier ?? null,
-              sections: (group.attrSections ?? []).map((section: any) => ({
-                identifier: section.identifier ?? null,
-                attributes: (section.attributes ?? []).map((attr: any) => ({
-                  identifier: attr.identifier ?? null,
-                  value: attr.value ?? null,
-                  attrType: attr.attrType ?? 0,
-                })),
-              })),
-            }),
-          ),
+          attributesGroupList: (detail.attributesGroupList ?? []).map(toAttrGroup),
         },
       };
     } finally {

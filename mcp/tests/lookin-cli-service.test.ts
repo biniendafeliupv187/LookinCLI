@@ -152,6 +152,71 @@ describe('LookinCliService.modifyView target validation', () => {
   });
 });
 
+// ─── modifyView response should include userCustomTitle in attributesGroupList ───
+
+const MODIFY_WITH_TITLE_BUFFER = Buffer.from('modify-with-title');
+
+describe('LookinCliService.modifyView — userCustomTitle in response', () => {
+  beforeEach(() => {
+    requestMock.mockReset();
+    closeMock.mockReset();
+  });
+
+  it('includes userCustomTitle in updatedDetail.attributesGroupList', async () => {
+    requestMock.mockImplementation(async (type: number) => {
+      if (type === 204) return MODIFY_WITH_TITLE_BUFFER;
+      throw new Error(`Unexpected request type ${type}`);
+    });
+
+    const bridge = {
+      encode: vi.fn().mockResolvedValue(Buffer.from('encoded-request').toString('base64')),
+      decode: vi.fn().mockImplementation(async (base64: string) => {
+        if (base64 === MODIFY_WITH_TITLE_BUFFER.toString('base64')) {
+          return {
+            $class: 'LookinConnectionResponseAttachment',
+            data: {
+              frameValue: null,
+              boundsValue: null,
+              hiddenValue: true,
+              alphaValue: 1,
+              attributesGroupList: [
+                {
+                  identifier: 'lb',
+                  userCustomTitle: 'My Custom Label',
+                  attrSections: [
+                    {
+                      identifier: 'lb_t',
+                      attributes: [{ identifier: 'lb_t_t', value: 'hello', attrType: 24 }],
+                    },
+                  ],
+                },
+              ],
+            },
+          };
+        }
+        throw new Error(`Unexpected decode payload: ${base64}`);
+      }),
+    };
+
+    const service = new LookinCliService({
+      fixedEndpoint: { host: '127.0.0.1', port: 47175, transport: 'simulator' },
+      bridgeClient: bridge as any,
+    });
+
+    const result = await service.modifyView({
+      oid: 42,
+      attribute: 'hidden',
+      value: true,
+    }) as any;
+
+    expect(result.updatedDetail.attributesGroupList).toHaveLength(1);
+    const group = result.updatedDetail.attributesGroupList[0];
+    expect(group.userCustomTitle).toBe('My Custom Label');
+    expect(group.identifier).toBe('lb');
+    expect(group.sections).toHaveLength(1);
+  });
+});
+
 // ─── Fix 1: extractTextFromAttrGroups misses non-label groups ───
 
 const HIERARCHY_WITH_BUTTON_BUFFER = Buffer.from('hierarchy-with-button');

@@ -74,7 +74,7 @@ describe('search MCP tool', () => {
     ]);
   }
 
-  it('search tool is listed with className and query params', async () => {
+  it('search tool is listed with className, query and text params', async () => {
     const { server, port } = await createMockServer();
     mockServer = server;
     await setupMcpPair(port);
@@ -85,6 +85,7 @@ describe('search MCP tool', () => {
     expect(tool!.description!.toLowerCase()).toContain('search');
     const schema = tool!.inputSchema as any;
     expect(schema.properties).toHaveProperty('query');
+    expect(schema.properties).toHaveProperty('text');
   });
 
   it('search by className returns matching nodes', async () => {

@@ -68,6 +68,7 @@ interface SearchResult {
   isHidden: boolean;
   alpha: number;
   parentChain: string;
+  text?: string;
 }
 
 interface VCInfo {
@@ -75,6 +76,10 @@ interface VCInfo {
   oid: number;
   hostViewOid: number;
 }
+
+const MAX_TEXT_CANDIDATES = 200;
+const TEXT_HINT_THRESHOLD = 50;
+const TEXT_SEARCH_BATCH_SIZE = 5;
 
 export class LookinCliService {
   private readonly fixedEndpoint?: DeviceEndpoint;
@@ -181,16 +186,22 @@ export class LookinCliService {
     };
   }
 
-  async search(query: string): Promise<Record<string, unknown>> {
+  async search(query?: string, text?: string): Promise<Record<string, unknown>> {
     const startMs = Date.now();
+
+    if (text) {
+      return this.searchByText(query, text, startMs);
+    }
+
     const cachedIndex = this.cache?.getSearchIndex();
 
     if (cachedIndex) {
-      const results = filterSearchResults(cachedIndex, query);
+      const results = filterSearchResults(cachedIndex, query ?? '');
       const elapsedMs = Date.now() - startMs;
       const stalePossible = this.cache?.peekHierarchy()?.stale ?? false;
       return {
-        query,
+        query: query ?? null,
+        text: null,
         resultCount: results.length,
         results,
         _meta: CacheManager.buildMeta({
@@ -204,15 +215,15 @@ export class LookinCliService {
 
     const fetched = await this.fetchHierarchyInfo();
     const flattened = flattenItems(fetched.hierarchyInfo.displayItems ?? []);
-    const queryLower = query.toLowerCase();
+    const queryLower = (query ?? '').toLowerCase();
     const results: SearchResult[] = [];
 
     for (const { item, parentChain } of flattened) {
       const viewObj = item.viewObject ?? item.layerObject;
       const className = viewObj?.classChainList?.[0] ?? 'Unknown';
       const address = viewObj?.memoryAddress ?? '';
-      const matchesClass = className.toLowerCase().includes(queryLower);
-      const matchesAddress = address.toLowerCase().includes(queryLower);
+      const matchesClass = query ? className.toLowerCase().includes(queryLower) : true;
+      const matchesAddress = query ? address.toLowerCase().includes(queryLower) : true;
 
       if (matchesClass || matchesAddress) {
         results.push({
@@ -228,7 +239,8 @@ export class LookinCliService {
 
     const elapsedMs = Date.now() - startMs;
     return {
-      query,
+      query: query ?? null,
+      text: null,
       resultCount: results.length,
       results,
       _meta: CacheManager.buildMeta({
@@ -238,6 +250,92 @@ export class LookinCliService {
         elapsedMs,
       }),
     };
+  }
+
+  private async searchByText(
+    query: string | undefined,
+    textQuery: string,
+    startMs: number,
+  ): Promise<Record<string, unknown>> {
+    let cacheHit = true;
+    let source: 'cache' | 'live' = 'cache';
+    let stalePossible = this.cache?.peekHierarchy()?.stale ?? false;
+
+    let allCandidates: SearchResult[];
+    const cachedIndex = this.cache?.getSearchIndex();
+
+    if (cachedIndex) {
+      allCandidates = filterSearchResults(cachedIndex, query ?? '');
+    } else {
+      const fetched = await this.fetchHierarchyInfo();
+      cacheHit = fetched.cacheHit;
+      source = fetched.source;
+      stalePossible = fetched.stalePossible;
+
+      // Use cache if populated by fetchHierarchyInfo, otherwise build candidates from raw items
+      const postFetchIndex = this.cache?.getSearchIndex();
+      if (postFetchIndex) {
+        allCandidates = filterSearchResults(postFetchIndex, query ?? '');
+      } else {
+        allCandidates = buildCandidatesFromHierarchy(
+          fetched.hierarchyInfo.displayItems ?? [],
+          query,
+        );
+      }
+    }
+
+    let searchHint: string | undefined;
+    if (allCandidates.length > MAX_TEXT_CANDIDATES) {
+      searchHint = `text search capped at ${MAX_TEXT_CANDIDATES} of ${allCandidates.length} candidates; consider adding --query to filter first`;
+    } else if (!query && allCandidates.length > TEXT_HINT_THRESHOLD) {
+      searchHint = `text-only search has ${allCandidates.length} candidates; consider adding --query to filter first`;
+    }
+
+    const candidates = allCandidates.slice(0, MAX_TEXT_CANDIDATES);
+    const results = await this.fetchTextMatches(candidates, textQuery);
+
+    const elapsedMs = Date.now() - startMs;
+    const meta = CacheManager.buildMeta({ cacheHit, source, stalePossible, elapsedMs });
+    if (searchHint) meta.hint = searchHint;
+    return {
+      query: query ?? null,
+      text: textQuery,
+      resultCount: results.length,
+      results,
+      _meta: meta,
+    };
+  }
+
+  private async fetchTextMatches(
+    candidates: SearchResult[],
+    textQuery: string,
+  ): Promise<SearchResult[]> {
+    const textLower = textQuery.toLowerCase();
+    const results: SearchResult[] = [];
+
+    for (let i = 0; i < candidates.length; i += TEXT_SEARCH_BATCH_SIZE) {
+      const batch = candidates.slice(i, i + TEXT_SEARCH_BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (candidate) => {
+          if (candidate.oid === 0) return null;
+          try {
+            const viewData = await this.getView(candidate.oid);
+            const text = extractTextFromAttrGroups(viewData);
+            if (text && text.toLowerCase().includes(textLower)) {
+              return { ...candidate, text };
+            }
+          } catch {
+            // Individual view fetch failures are non-fatal
+          }
+          return null;
+        }),
+      );
+      for (const r of batchResults) {
+        if (r) results.push(r);
+      }
+    }
+
+    return results;
   }
 
   async listViewControllers(): Promise<Record<string, unknown>> {
@@ -648,6 +746,38 @@ function toTextLines(nodes: HierarchyViewNode[], depth = 0): string[] {
   return lines;
 }
 
+/**
+ * Extract text content from attrGroups in get_view response.
+ * Collects all attributes whose identifier ends with `_t_t` (the Lookin
+ * convention for text-type attrs: lb_t_t, bt_t_t, tx_t_c, etc.).
+ */
+function extractTextFromAttrGroups(viewData: Record<string, unknown>): string | null {
+  const attrGroups = viewData.attrGroups as Array<{
+    identifier: string;
+    sections?: Array<{
+      attributes?: Array<{
+        identifier: string;
+        value?: unknown;
+      }>;
+    }>;
+  }> | undefined;
+
+  if (!attrGroups) return null;
+
+  const texts: string[] = [];
+  for (const group of attrGroups) {
+    for (const section of group.sections ?? []) {
+      for (const attr of section.attributes ?? []) {
+        if (attr.identifier.endsWith('_t_t') && typeof attr.value === 'string') {
+          texts.push(attr.value);
+        }
+      }
+    }
+  }
+
+  return texts.length > 0 ? texts.join(' ') : null;
+}
+
 function flattenItems(
   items: any[],
   parentChain: string[] = [],
@@ -697,6 +827,34 @@ function filterSearchResults(
       alpha: item.alpha,
       parentChain: item.parentChain,
     }));
+}
+
+function buildCandidatesFromHierarchy(
+  displayItems: any[],
+  query: string | undefined,
+): SearchResult[] {
+  const flattened = flattenItems(displayItems);
+  const queryLower = (query ?? '').toLowerCase();
+
+  return flattened
+    .filter(({ item }) => {
+      if (!query) return true;
+      const viewObj = item.viewObject ?? item.layerObject;
+      const className = viewObj?.classChainList?.[0] ?? 'Unknown';
+      const address = viewObj?.memoryAddress ?? '';
+      return className.toLowerCase().includes(queryLower) || address.toLowerCase().includes(queryLower);
+    })
+    .map(({ item, parentChain }) => {
+      const viewObj = item.viewObject ?? item.layerObject;
+      return {
+        oid: viewObj?.oid ?? 0,
+        className: viewObj?.classChainList?.[0] ?? 'Unknown',
+        frame: item.frame ?? { x: 0, y: 0, width: 0, height: 0 },
+        isHidden: item.isHidden ?? false,
+        alpha: item.alpha ?? 0,
+        parentChain: parentChain.join(' > '),
+      };
+    });
 }
 
 function collectViewControllers(items: any[]): VCInfo[] {

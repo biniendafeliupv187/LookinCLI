@@ -57,7 +57,12 @@ const screenshotInputShape = {
 const searchInputShape = {
   query: z
     .string()
+    .optional()
     .describe('Search string to match against className or memory address. Case-insensitive partial match.'),
+  text: z
+    .string()
+    .optional()
+    .describe('Search string to match against text content (e.g., UILabel, GXText text). Case-insensitive partial match. Uses get_view internally, so may be slower.'),
 } satisfies CommandShape;
 
 const getViewInputShape = {
@@ -122,14 +127,14 @@ export const hierarchyCommand: LookinCommandDefinition<
 };
 
 export const searchCommand: LookinCommandDefinition<
-  { query: string },
+  { query?: string; text?: string },
   Record<string, unknown>
 > = {
   name: 'search',
   description:
-    'Search the iOS view hierarchy by class name or memory address. Returns matching nodes with parent context (breadcrumb). Case-insensitive partial matching on className.',
+    'Search the iOS view hierarchy by class name, memory address, or text content. Returns matching nodes with parent context (breadcrumb). Case-insensitive partial matching. Use --text to search text content (slower, as it fetches view attributes).',
   inputShape: searchInputShape,
-  execute: async ({ query }, { service }) => service.search(query),
+  execute: async ({ query, text }, { service }) => service.search(query, text),
   toCliOutput: toCliJson,
   toMcpContent: toJsonContent,
 };

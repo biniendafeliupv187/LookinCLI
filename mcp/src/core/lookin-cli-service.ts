@@ -79,6 +79,7 @@ interface VCInfo {
 
 const MAX_TEXT_CANDIDATES = 200;
 const TEXT_HINT_THRESHOLD = 50;
+const TEXT_SEARCH_BATCH_SIZE = 5;
 
 export class LookinCliService {
   private readonly fixedEndpoint?: DeviceEndpoint;
@@ -188,12 +189,10 @@ export class LookinCliService {
   async search(query?: string, text?: string): Promise<Record<string, unknown>> {
     const startMs = Date.now();
 
-    // If text search is requested, we need to fetch view details to get text content
     if (text) {
       return this.searchByText(query, text, startMs);
     }
 
-    // Standard search by className or address
     const cachedIndex = this.cache?.getSearchIndex();
 
     if (cachedIndex) {
@@ -258,125 +257,85 @@ export class LookinCliService {
     textQuery: string,
     startMs: number,
   ): Promise<Record<string, unknown>> {
-    // Get all nodes first (or use cache)
+    let cacheHit = true;
+    let source: 'cache' | 'live' = 'cache';
+    let stalePossible = this.cache?.peekHierarchy()?.stale ?? false;
+
+    let allCandidates: SearchResult[];
     const cachedIndex = this.cache?.getSearchIndex();
 
     if (cachedIndex) {
-      // For text search, we need to fetch view details for each candidate
-      const textLower = textQuery.toLowerCase();
-      const results: SearchResult[] = [];
+      allCandidates = filterSearchResults(cachedIndex, query ?? '');
+    } else {
+      const fetched = await this.fetchHierarchyInfo();
+      cacheHit = fetched.cacheHit;
+      source = fetched.source;
+      stalePossible = fetched.stalePossible;
 
-      // Limit concurrent fetches to avoid overwhelming the server
-      const allCandidates = filterSearchResults(cachedIndex, query ?? '');
-      let searchHint: string | undefined;
-      if (!query && allCandidates.length > TEXT_HINT_THRESHOLD) {
-        searchHint = `text-only search has ${allCandidates.length} candidates; consider adding --query to filter first`;
-      }
-      const candidates = allCandidates.slice(0, MAX_TEXT_CANDIDATES);
-      const BATCH_SIZE = 5;
-
-      for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
-        const batch = candidates.slice(i, i + BATCH_SIZE);
-        const batchResults = await Promise.all(
-          batch.map(async (candidate) => {
-            if (candidate.oid === 0) return null;
-            try {
-              const viewData = await this.getView(candidate.oid);
-              const text = extractTextFromAttrGroups(viewData);
-              if (text && text.toLowerCase().includes(textLower)) {
-                return { ...candidate, text };
-              }
-            } catch {
-              // Ignore errors for individual view fetches
-            }
-            return null;
-          }),
+      // Use cache if populated by fetchHierarchyInfo, otherwise build candidates from raw items
+      const postFetchIndex = this.cache?.getSearchIndex();
+      if (postFetchIndex) {
+        allCandidates = filterSearchResults(postFetchIndex, query ?? '');
+      } else {
+        allCandidates = buildCandidatesFromHierarchy(
+          fetched.hierarchyInfo.displayItems ?? [],
+          query,
         );
-        results.push(...batchResults.filter((r) => r !== null) as SearchResult[]);
       }
-
-      const elapsedMs = Date.now() - startMs;
-      const stalePossible = this.cache?.peekHierarchy()?.stale ?? false;
-      const meta = CacheManager.buildMeta({ cacheHit: true, source: 'cache', stalePossible, elapsedMs });
-      if (searchHint) meta.hint = searchHint;
-      return {
-        query: query ?? null,
-        text: textQuery,
-        resultCount: results.length,
-        results,
-        _meta: meta,
-      };
     }
-
-    // No cache, need to fetch hierarchy first
-    const fetched = await this.fetchHierarchyInfo();
-    const flattened = flattenItems(fetched.hierarchyInfo.displayItems ?? []);
-    const textLower = textQuery.toLowerCase();
-    const queryLower = (query ?? '').toLowerCase();
-    const results: SearchResult[] = [];
-
-    // Pre-filter candidates by className/address, then apply hint + cap
-    const matchingItems = flattened.filter(({ item }) => {
-      const viewObj = item.viewObject ?? item.layerObject;
-      const className = viewObj?.classChainList?.[0] ?? 'Unknown';
-      const address = viewObj?.memoryAddress ?? '';
-      const matchesClass = query ? className.toLowerCase().includes(queryLower) : true;
-      const matchesAddress = query ? address.toLowerCase().includes(queryLower) : true;
-      return matchesClass || matchesAddress;
-    });
 
     let searchHint: string | undefined;
-    if (!query && matchingItems.length > TEXT_HINT_THRESHOLD) {
-      searchHint = `text-only search has ${matchingItems.length} candidates; consider adding --query to filter first`;
+    if (allCandidates.length > MAX_TEXT_CANDIDATES) {
+      searchHint = `text search capped at ${MAX_TEXT_CANDIDATES} of ${allCandidates.length} candidates; consider adding --query to filter first`;
+    } else if (!query && allCandidates.length > TEXT_HINT_THRESHOLD) {
+      searchHint = `text-only search has ${allCandidates.length} candidates; consider adding --query to filter first`;
     }
-    const cappedItems = matchingItems.slice(0, MAX_TEXT_CANDIDATES);
 
-    // Process in batches
-    const BATCH_SIZE = 5;
-    for (let i = 0; i < cappedItems.length; i += BATCH_SIZE) {
-      const batch = cappedItems.slice(i, i + BATCH_SIZE);
-      const batchResults = await Promise.all(
-        batch.map(async ({ item, parentChain }) => {
-          const viewObj = item.viewObject ?? item.layerObject;
-          const className = viewObj?.classChainList?.[0] ?? 'Unknown';
-
-          const oid = viewObj?.oid ?? 0;
-          if (oid === 0) return null;
-          try {
-            const viewData = await this.getView(oid);
-            const text = extractTextFromAttrGroups(viewData);
-            if (text && text.toLowerCase().includes(textLower)) {
-              return {
-                oid,
-                className,
-                frame: item.frame ?? { x: 0, y: 0, width: 0, height: 0 },
-                isHidden: item.isHidden ?? false,
-                alpha: item.alpha ?? 0,
-                parentChain: parentChain.join(' > '),
-                text,
-              };
-            }
-          } catch {
-            // Ignore errors
-          }
-          return null;
-        }),
-      );
-      results.push(...batchResults.filter((r) => r !== null) as SearchResult[]);
-    }
+    const candidates = allCandidates.slice(0, MAX_TEXT_CANDIDATES);
+    const results = await this.fetchTextMatches(candidates, textQuery);
 
     const elapsedMs = Date.now() - startMs;
+    const meta = CacheManager.buildMeta({ cacheHit, source, stalePossible, elapsedMs });
+    if (searchHint) meta.hint = searchHint;
     return {
       query: query ?? null,
       text: textQuery,
       resultCount: results.length,
       results,
-      _meta: (() => {
-        const meta = CacheManager.buildMeta({ cacheHit: fetched.cacheHit, source: fetched.source, stalePossible: fetched.stalePossible, elapsedMs });
-        if (searchHint) meta.hint = searchHint;
-        return meta;
-      })(),
+      _meta: meta,
     };
+  }
+
+  private async fetchTextMatches(
+    candidates: SearchResult[],
+    textQuery: string,
+  ): Promise<SearchResult[]> {
+    const textLower = textQuery.toLowerCase();
+    const results: SearchResult[] = [];
+
+    for (let i = 0; i < candidates.length; i += TEXT_SEARCH_BATCH_SIZE) {
+      const batch = candidates.slice(i, i + TEXT_SEARCH_BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (candidate) => {
+          if (candidate.oid === 0) return null;
+          try {
+            const viewData = await this.getView(candidate.oid);
+            const text = extractTextFromAttrGroups(viewData);
+            if (text && text.toLowerCase().includes(textLower)) {
+              return { ...candidate, text };
+            }
+          } catch {
+            // Individual view fetch failures are non-fatal
+          }
+          return null;
+        }),
+      );
+      for (const r of batchResults) {
+        if (r) results.push(r);
+      }
+    }
+
+    return results;
   }
 
   async listViewControllers(): Promise<Record<string, unknown>> {
@@ -789,11 +748,8 @@ function toTextLines(nodes: HierarchyViewNode[], depth = 0): string[] {
 
 /**
  * Extract text content from attrGroups in get_view response.
- * Text can be in different attribute identifiers depending on the view type:
- * - lb_t_t: UILabel text
- * - tx_t_c: UITextField/UITextView text
- * - bt_t_t: UIButton title
- * - etc.
+ * Collects all attributes whose identifier ends with `_t_t` (the Lookin
+ * convention for text-type attrs: lb_t_t, bt_t_t, tx_t_c, etc.).
  */
 function extractTextFromAttrGroups(viewData: Record<string, unknown>): string | null {
   const attrGroups = viewData.attrGroups as Array<{
@@ -808,19 +764,18 @@ function extractTextFromAttrGroups(viewData: Record<string, unknown>): string | 
 
   if (!attrGroups) return null;
 
+  const texts: string[] = [];
   for (const group of attrGroups) {
-    const sections = group.sections ?? [];
-    for (const section of sections) {
-      const attributes = section.attributes ?? [];
-      for (const attr of attributes) {
+    for (const section of group.sections ?? []) {
+      for (const attr of section.attributes ?? []) {
         if (attr.identifier.endsWith('_t_t') && typeof attr.value === 'string') {
-          return attr.value;
+          texts.push(attr.value);
         }
       }
     }
   }
 
-  return null;
+  return texts.length > 0 ? texts.join(' ') : null;
 }
 
 function flattenItems(
@@ -872,6 +827,34 @@ function filterSearchResults(
       alpha: item.alpha,
       parentChain: item.parentChain,
     }));
+}
+
+function buildCandidatesFromHierarchy(
+  displayItems: any[],
+  query: string | undefined,
+): SearchResult[] {
+  const flattened = flattenItems(displayItems);
+  const queryLower = (query ?? '').toLowerCase();
+
+  return flattened
+    .filter(({ item }) => {
+      if (!query) return true;
+      const viewObj = item.viewObject ?? item.layerObject;
+      const className = viewObj?.classChainList?.[0] ?? 'Unknown';
+      const address = viewObj?.memoryAddress ?? '';
+      return className.toLowerCase().includes(queryLower) || address.toLowerCase().includes(queryLower);
+    })
+    .map(({ item, parentChain }) => {
+      const viewObj = item.viewObject ?? item.layerObject;
+      return {
+        oid: viewObj?.oid ?? 0,
+        className: viewObj?.classChainList?.[0] ?? 'Unknown',
+        frame: item.frame ?? { x: 0, y: 0, width: 0, height: 0 },
+        isHidden: item.isHidden ?? false,
+        alpha: item.alpha ?? 0,
+        parentChain: parentChain.join(' > '),
+      };
+    });
 }
 
 function collectViewControllers(items: any[]): VCInfo[] {

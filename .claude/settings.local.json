@@ -11,7 +11,10 @@
       "Bash(find /Users/majianming/Lookin/LookinCLI/mcp/tests -type f -name \"*.ts\" -exec grep -l \"mock\\\\|fixture\\\\|stub\" {})",
       "Bash(grep -n \"function create\\\\|const create\\\\|export.*function\\\\|export.*const\" /Users/majianming/Lookin/LookinCLI/mcp/tests/*.ts)",
       "Bash(npx vitest:*)",
-      "Bash(npm test:*)"
+      "Bash(npm test:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

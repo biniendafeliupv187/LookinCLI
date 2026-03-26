@@ -311,31 +311,34 @@ export class LookinCliService {
     textQuery: string,
   ): Promise<SearchResult[]> {
     const textLower = textQuery.toLowerCase();
-    const results: SearchResult[] = [];
 
-    for (let i = 0; i < candidates.length; i += TEXT_SEARCH_BATCH_SIZE) {
-      const batch = candidates.slice(i, i + TEXT_SEARCH_BATCH_SIZE);
-      const batchResults = await Promise.all(
-        batch.map(async (candidate) => {
-          if (candidate.oid === 0) return null;
-          try {
-            const viewData = await this.getView(candidate.oid);
-            const text = extractTextFromAttrGroups(viewData);
-            if (text && text.toLowerCase().includes(textLower)) {
-              return { ...candidate, text };
+    return this.withSession(async ({ session }) => {
+      const results: SearchResult[] = [];
+
+      for (let i = 0; i < candidates.length; i += TEXT_SEARCH_BATCH_SIZE) {
+        const batch = candidates.slice(i, i + TEXT_SEARCH_BATCH_SIZE);
+        const batchResults = await Promise.all(
+          batch.map(async (candidate) => {
+            if (candidate.oid === 0) return null;
+            try {
+              const viewData = await this.fetchViewAttrs(candidate.oid, session);
+              const text = extractTextFromAttrGroups(viewData);
+              if (text && text.toLowerCase().includes(textLower)) {
+                return { ...candidate, text };
+              }
+            } catch {
+              // Individual view fetch failures are non-fatal
             }
-          } catch {
-            // Individual view fetch failures are non-fatal
-          }
-          return null;
-        }),
-      );
-      for (const r of batchResults) {
-        if (r) results.push(r);
+            return null;
+          }),
+        );
+        for (const r of batchResults) {
+          if (r) results.push(r);
+        }
       }
-    }
 
-    return results;
+      return results;
+    });
   }
 
   async listViewControllers(): Promise<Record<string, unknown>> {
@@ -391,19 +394,41 @@ export class LookinCliService {
       };
     }
 
-    const response = await this.withSession(async ({ session }) => {
-      const payload = await this.encodePayload({
-        $class: 'LookinConnectionAttachment',
-        dataType: 0,
-        data: oid,
-      });
-      const responseBuf = await session.request(
-        LookinRequestType.AllAttrGroups,
-        payload,
-        10000,
-      );
-      return this.decodeBuffer(responseBuf);
+    const result = await this.withSession(async ({ session }) =>
+      this.fetchViewAttrs(oid, session),
+    );
+
+    const elapsedMs = Date.now() - startMs;
+    return {
+      ...result,
+      _meta: CacheManager.buildMeta({
+        cacheHit: false,
+        source: 'live',
+        stalePossible: false,
+        elapsedMs,
+      }),
+    };
+  }
+
+  /**
+   * Fetch view attributes using an existing session. Caches the result.
+   * Shared by getView (single call) and fetchTextMatches (batch reuse).
+   */
+  private async fetchViewAttrs(
+    oid: number,
+    session: AppSession,
+  ): Promise<{ oid: number; attrGroups: any[] }> {
+    const payload = await this.encodePayload({
+      $class: 'LookinConnectionAttachment',
+      dataType: 0,
+      data: oid,
     });
+    const responseBuf = await session.request(
+      LookinRequestType.AllAttrGroups,
+      payload,
+      10000,
+    );
+    const response = await this.decodeBuffer(responseBuf);
 
     if (response.$class !== 'LookinConnectionResponseAttachment') {
       throw new LookinError(
@@ -418,16 +443,7 @@ export class LookinCliService {
     };
 
     this.cache?.setViewDetail(oid, result);
-    const elapsedMs = Date.now() - startMs;
-    return {
-      ...result,
-      _meta: CacheManager.buildMeta({
-        cacheHit: false,
-        source: 'live',
-        stalePossible: false,
-        elapsedMs,
-      }),
-    };
+    return result;
   }
 
   async modifyView(args: {

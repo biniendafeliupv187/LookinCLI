@@ -27,9 +27,12 @@ vi.mock('../src/core/app-session.js', () => ({
   })),
 }));
 
+import { AppSession } from '../src/core/app-session.js';
 import { LookinCliService } from '../src/core/lookin-cli-service.js';
 import { LookinError } from '../src/core/errors.js';
 import { CacheManager } from '../src/core/cache.js';
+
+const AppSessionMock = vi.mocked(AppSession);
 
 const HIERARCHY_BUFFER = Buffer.from('hierarchy-response');
 const MODIFY_BUFFER = Buffer.from('modify-response');
@@ -404,5 +407,85 @@ describe('LookinCliService.searchByText — cache metadata propagation', () => {
     const second = await service.search('UILabel', 'hello') as any;
     expect(second._meta.cacheHit).toBe(true);
     expect(second._meta.source).toBe('cache');
+  });
+});
+
+// ─── Session reuse: fetchTextMatches should open only ONE session for all getView calls ───
+
+const SESSION_REUSE_HIER_BUFFER = Buffer.from('session-reuse-hier');
+const SESSION_REUSE_VIEW_BUFFER = Buffer.from('session-reuse-view');
+
+describe('LookinCliService.search text — session reuse', () => {
+  beforeEach(() => {
+    requestMock.mockReset();
+    closeMock.mockReset();
+    AppSessionMock.mockClear();
+  });
+
+  it('opens only 2 AppSessions for text search with 10 candidates (1 hierarchy + 1 for all getView calls)', async () => {
+    const items = Array.from({ length: 10 }, (_, i) => ({
+      $class: 'LookinDisplayItem',
+      viewObject: { $class: 'LookinObject', classChainList: ['UILabel'], oid: 500 + i },
+      layerObject: { $class: 'LookinObject', classChainList: ['CALayer'], oid: 600 + i },
+      frame: { x: 0, y: i * 10, width: 200, height: 40 },
+      isHidden: false,
+      alpha: 1,
+    }));
+
+    requestMock.mockImplementation(async (type: number) => {
+      if (type === 202) return SESSION_REUSE_HIER_BUFFER;
+      if (type === 210) return SESSION_REUSE_VIEW_BUFFER;
+      throw new Error(`Unexpected request type ${type}`);
+    });
+
+    const bridge = {
+      encode: vi.fn().mockResolvedValue(Buffer.from('encoded-request').toString('base64')),
+      decode: vi.fn().mockImplementation(async (base64: string) => {
+        if (base64 === SESSION_REUSE_HIER_BUFFER.toString('base64')) {
+          return {
+            $class: 'LookinConnectionResponseAttachment',
+            data: { $class: 'LookinHierarchyInfo', displayItems: items },
+          };
+        }
+        if (base64 === SESSION_REUSE_VIEW_BUFFER.toString('base64')) {
+          return {
+            $class: 'LookinConnectionResponseAttachment',
+            data: [
+              {
+                identifier: 'lb',
+                attrSections: [
+                  {
+                    identifier: 'lb_t',
+                    attributes: [{ identifier: 'lb_t_t', value: '匹配文字', attrType: 24 }],
+                  },
+                ],
+              },
+            ],
+          };
+        }
+        throw new Error(`Unexpected decode payload: ${base64}`);
+      }),
+    };
+
+    const service = new LookinCliService({
+      fixedEndpoint: { host: '127.0.0.1', port: 47175, transport: 'simulator' },
+      bridgeClient: bridge as any,
+    });
+
+    const result = await service.search('UILabel', '匹配文字') as any;
+
+    // All 10 candidates should match (all have text '匹配文字')
+    expect(result.results).toHaveLength(10);
+
+    // KEY ASSERTION: only 2 AppSession instances created —
+    // 1 for fetchHierarchyInfo, 1 shared session for all 10 getView calls
+    expect(AppSessionMock).toHaveBeenCalledTimes(2);
+
+    // close() should also be called exactly 2 times
+    expect(closeMock).toHaveBeenCalledTimes(2);
+
+    // request type 210 (AllAttrGroups) should be called 10 times on the shared session
+    const attrGroupCalls = requestMock.mock.calls.filter((c: any[]) => c[0] === 210);
+    expect(attrGroupCalls).toHaveLength(10);
   });
 });

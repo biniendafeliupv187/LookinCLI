@@ -466,6 +466,10 @@ export class LookinCliService {
       throw new LookinError('VALIDATION_INVALID_VALUE', validation.reason);
     }
 
+    if (spec.target === 'view') {
+      await this.validateModifyTarget(args.oid, spec.target, args.attribute);
+    }
+
     try {
       const response = await this.withSession(async ({ session }) => {
         const payload = await this.encodePayload({
@@ -652,6 +656,31 @@ export class LookinCliService {
     return hierarchyInfo;
   }
 
+  private async validateModifyTarget(
+    oid: number,
+    target: 'layer' | 'view',
+    attribute: keyof typeof ATTR_WHITELIST,
+  ): Promise<void> {
+    const fetched = await this.fetchHierarchyInfo();
+    const targetInfo = findTargetOidKind(fetched.hierarchyInfo.displayItems ?? [], oid);
+
+    if (!targetInfo) {
+      throw new LookinError(
+        'VALIDATION_INVALID_TARGET',
+        `oid ${oid} was not found in the current hierarchy. Refresh hierarchy and retry.`,
+      );
+    }
+
+    const expectedField = target === 'view' ? 'oid' : 'layerOid';
+    const actualField = targetInfo.kind === 'view' ? 'oid' : 'layerOid';
+    if (targetInfo.kind !== target) {
+      throw new LookinError(
+        'VALIDATION_INVALID_TARGET',
+        `Attribute "${attribute}" expects ${expectedField}, but ${oid} matches ${actualField}.`,
+      );
+    }
+  }
+
   private async withSession<T>(
     handler: (context: EndpointSessionContext) => Promise<T>,
   ): Promise<T> {
@@ -801,6 +830,26 @@ function flattenItems(
   }
 
   return result;
+}
+
+function findTargetOidKind(
+  items: any[],
+  oid: number,
+): { kind: 'view' | 'layer' } | null {
+  for (const item of items) {
+    if ((item.viewObject?.oid ?? 0) === oid) {
+      return { kind: 'view' };
+    }
+    if ((item.layerObject?.oid ?? 0) === oid) {
+      return { kind: 'layer' };
+    }
+    const nested = findTargetOidKind(item.subitems ?? [], oid);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return null;
 }
 
 function filterSearchResults(

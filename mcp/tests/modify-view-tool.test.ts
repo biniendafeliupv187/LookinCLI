@@ -16,10 +16,11 @@ const fixtures = JSON.parse(
 );
 
 const MODIFY_RESPONSE_B64: string = fixtures.modifyResponse.base64;
+const HIERARCHY_RESPONSE_B64: string = fixtures.hierarchyResponse.base64;
 
 /**
- * Mock server that responds to Type 204 (InbuiltAttrModification)
- * with the modify response fixture.
+ * Mock server that responds to hierarchy lookups for text target validation
+ * and Type 204 modify requests with fixture payloads.
  */
 function createMockModifyServer(): Promise<{
   server: net.Server;
@@ -41,7 +42,9 @@ function createMockModifyServer(): Promise<{
           lastPayload = buffer.subarray(16, totalSize);
           buffer = buffer.subarray(totalSize);
 
-          const payloadBuf = Buffer.from(MODIFY_RESPONSE_B64, 'base64');
+          const responseB64 =
+            type === 202 ? HIERARCHY_RESPONSE_B64 : MODIFY_RESPONSE_B64;
+          const payloadBuf = Buffer.from(responseB64, 'base64');
           socket.write(FrameEncoder.encode(type, tag, payloadBuf));
         }
       });
@@ -181,12 +184,13 @@ describe('modify_view MCP tool', () => {
 
     const result = await client!.callTool({
       name: 'modify_view',
-      arguments: { oid: 42, attribute: 'text', value: 'Hello World' },
+      arguments: { oid: 2, attribute: 'text', value: 'Hello World' },
     });
     expect(result.isError).toBeFalsy();
 
     const text = (result.content as any)[0].text as string;
     const data = JSON.parse(text);
+    expect(data.oid).toBe(2);
     expect(data.attribute).toBe('text');
     expect(data.value).toBe('Hello World');
     expect(data.updatedDetail).toBeDefined();

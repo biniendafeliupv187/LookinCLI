@@ -4,7 +4,19 @@
 
 每个 iOS 开发者都用过 Xcode Inspector 或者 Lookin 这类图形化工具。它们好用，但有个硬伤：只有人能操作。
 
-想让 AI 帮你做 UI 调试、自动化测试、或者接管 Hot Reload 工作流？不行，GUI 工具没有这个接口。
+具体卡在哪？列几个日常场景：
+
+**搞不清当前页面属于哪个 ViewController**。接手老项目或者排查跳转问题时，常常需要知道当前页面的 VC 是谁，只能靠打断点或者在 hierarchy 里猜。
+
+**找一个 View 要手动展开树**。App 页面复杂时，hierarchy 动辄几百个节点。想找登录按钮在哪一层，只能在 Lookin 或 Xcode Inspector 里一级一级点开，没有搜索，没有过滤。
+
+**看属性要用鼠标点**。想确认某个 View 的 backgroundColor 是不是透明、frame 对不对，需要在 GUI 里选中节点再展开属性面板。这个操作没有快捷键，也没有办法写进脚本。
+
+**改一个颜色要重新编译**。UIKit/ObjC 项目没有 SwiftUI Preview，调整间距、换个颜色、改一行文案，都得走完"改代码 → 编译 → 安装 → 看效果"这一轮。快的话十几秒，遇到增量编译失效就是几分钟。
+
+**AI 改了代码，但不知道改完长什么样**。AI 能读代码、能改代码，但无法感知 App 的运行时状态，"改 → 看效果 → 再改"这个闭环断掉了。
+
+想让 AI 帮你做 UI 调试、自动化测试、或者接管 Hot Reload 工作流？GUI 工具没有这个接口。
 
 LookinCLI 做的就是这件事：把 iOS App 的 UI 运行时通过命令行和 MCP 协议暴露出来，让脚本和 AI 可以直接操作。
 
@@ -218,80 +230,69 @@ lookin init --force
 
 ### CLI
 
-**status** — 检查连接健康状态，返回 transport 类型、协议版本、后台状态。
+**先确认连上了**。第一次跑之前，用 `status` 确认设备已连接、LookinServer 在线：
 
 ```bash
 lookin status
+# 返回 transport 类型（simulator / usb）、协议版本、App 后台状态
 ```
 
-**get_hierarchy** — 获取完整 View 树。`format` 默认 `text`，比 JSON 省约 62% Token；`maxDepth` 可选，不填返回完整树。
+**搞不清当前页面属于哪个 ViewController**。不用打断点，直接列出来：
 
 ```bash
-lookin get_hierarchy
-lookin get_hierarchy --format json
-lookin get_hierarchy --format text --max-depth 5
+lookin list_view_controllers   # 列出全部 VC，去重，附带类名和 oid
 ```
 
-**search** — 搜索视图。`--query` 按类名或内存地址匹配（大小写不敏感，部分匹配）；`--text` 按文本内容匹配（会调用 get_view，速度较慢）。两个参数可同时使用。
+**找一个 View，不用手动展开树**。先拿到整棵树，再搜：
 
 ```bash
-lookin search --query UIButton
-lookin search --text "立即登录"
-lookin search --query UILabel --text "欢迎"
+lookin get_hierarchy                               # 默认 text 格式
+lookin get_hierarchy --format text --max-depth 10  # 只看 UIKit 层，过滤掉 RN 深层节点
+lookin get_hierarchy --format json                 # 需要精确字段时用 JSON
 ```
-
-**list_view_controllers** — 列出 hierarchy 里所有 UIViewController，去重，附带类名和 oid。
 
 ```bash
-lookin list_view_controllers
+lookin search --query UIButton               # 按类名搜，大小写不敏感
+lookin search --text "立即登录"              # 按文字内容搜（慢一些，需要逐个 getView）
+lookin search --query UILabel --text "欢迎"  # 两个条件同时用
 ```
 
-**reload** — 清缓存并从 App 重新拉取 hierarchy，返回节点数量和 App 信息。
+**查属性，不用鼠标**。从 `get_hierarchy` 输出里拿到 `layerOid`，直接查：
+
+```bash
+lookin get_view --oid 1025       # 返回 frame、颜色、layer 属性等全部字段
+lookin get_screenshot --oid 1025 # 截图这个 View，返回 base64 PNG
+```
+
+**不重新编译，直接改**。`--value` 自动推断类型，布尔/数字/数组/JSON 都不用额外转义：
+
+```bash
+# 隐藏或显示
+lookin modify_view --oid 1025 --attribute hidden --value true
+
+# 调透明度
+lookin modify_view --oid 1025 --attribute alpha --value 0.5
+
+# 调位置和大小，格式 [x, y, width, height]
+lookin modify_view --oid 1025 --attribute frame --value '[0,0,200,44]'
+
+# 换背景色，格式 [r, g, b, a]，值域 0-1
+lookin modify_view --oid 1025 --attribute backgroundColor --value '[1,0,0,1]'
+
+# 改文字内容——注意这里传 oid（viewOid），不是 layerOid
+lookin modify_view --oid 1024 --attribute text --value "立即登录"
+```
+
+改完觉得不对，或者页面跳转了，用 `reload` 刷新缓存再来一次：
 
 ```bash
 lookin reload
 ```
 
-**get_view** — 获取某个 View 的全部属性（frame、颜色、layer 属性等）。参数是 `layerOid`，从 `get_hierarchy` 输出里取。
+其他：
 
 ```bash
-lookin get_view --oid 1025
-```
-
-**get_screenshot** — 截图某个 View（含所有子视图），返回 base64 PNG。参数是 `layerOid`。
-
-```bash
-lookin get_screenshot --oid 1025
-```
-
-**modify_view** — 运行时修改 View 属性，修改后返回更新后的属性列表。
-
-- `hidden` / `alpha` / `frame` / `backgroundColor`：传 **layerOid**
-- `text`：传 **oid**（viewOid）
-
-`--value` 参数会自动推断类型：`true`/`false` → 布尔，纯数字 → number，`[...]`/`{...}` → JSON 解析。不需要额外转义。
-
-```bash
-# 隐藏视图
-lookin modify_view --oid 1025 --attribute hidden --value true
-
-# 修改透明度
-lookin modify_view --oid 1025 --attribute alpha --value 0.5
-
-# 修改 frame，格式 [x, y, width, height]
-lookin modify_view --oid 1025 --attribute frame --value '[0,0,200,44]'
-
-# 修改背景色，格式 [r, g, b, a]，值域 0-1
-lookin modify_view --oid 1025 --attribute backgroundColor --value '[1,0,0,1]'
-
-# 修改文字（用 oid 而非 layerOid）
-lookin modify_view --oid 1024 --attribute text --value "立即登录"
-```
-
-**get_app_info** — 获取 App 元信息：名称、Bundle ID、设备型号、OS 版本、LookinServer 版本。
-
-```bash
-lookin get_app_info
+lookin get_app_info   # App 名称、Bundle ID、设备型号、OS 版本
 ```
 
 ### MCP Server（接入 Claude Desktop）
@@ -315,6 +316,29 @@ lookin get_app_info
 Claude 会依次调用 `get_hierarchy` → `search --query UIButton` → `get_view` 确认 → `modify_view --attribute text`，全程不需要人工干预，也不用重新编译 App。
 
 MCP 会话内 CacheManager 是共享单例，第一次 `get_hierarchy` 之后，后续工具调用都能命中缓存，多轮对话的延迟会明显下降。
+
+### Skill：减少 AI 的试错
+
+MCP 工具有了，但 Claude 还需要知道"哪种请求用哪个工具、顺序是什么"。`lookin-mcp-router` 是一个 Claude Code Skill，专门解决这两个问题：
+
+**调用顺序问题**。"找不到设备"要先用 `status`；"查某个 View 的属性"应该先 `search` 精确定位再 `get_view`，而不是先 `get_hierarchy` 把整棵树拉下来。没有 Skill 引导，AI 容易走冗余路径。
+
+**oid/layerOid 混淆**。这是最常见的出错点。改 `text` 必须传 `oid`，改 `hidden/alpha/frame/backgroundColor` 必须传 `layerOid`。两者在 hierarchy 输出里成对出现，值不同，用错了 API 会静默失败或报错。典型错误场景：
+
+> 用户："我有这个 label 的 layerOid：0x7f8b1c2d，帮我把文字改成 Hello World"
+
+没有 Skill 时，AI 可能直接拿 layerOid 去调 `modify_view text`，调用失败。有 Skill 时，AI 会明确指出需要的是 `oid` 而非 `layerOid`，并引导用户先通过 `search` 拿到正确标识符。
+
+**两轮 benchmark 结果**（各 3 个 eval 场景，每场景跑 3 次）：
+
+| 轮次 | 有 Skill 通过率 | 无 Skill 通过率 | 差距 |
+|------|--------------|--------------|------|
+| Iteration 1 | 100% | 81% ± 17% | +19% |
+| Iteration 2 | 100% | 36% ± 38% | +64% |
+
+第二轮差距拉大到 64%——eval 场景加入了"用错 id 时的自我纠正"，没有 Skill 引导的 AI 在这类场景下失败率很高。Skill 的作用不是替 AI 做决策，而是把这些容易出错的规则显式编码进去，让 AI 不用每次从头推理。
+
+---
 
 ---
 

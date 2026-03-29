@@ -116,6 +116,33 @@ describe('LookinCliService.modifyView target validation', () => {
     expect(requestMock).toHaveBeenCalledWith(202, undefined, 15000);
   });
 
+  it('rejects layer modification when the provided id matches a view oid instead of a layerOid', async () => {
+    requestMock.mockImplementation(async (type: number) => {
+      if (type === 202) {
+        return HIERARCHY_BUFFER;
+      }
+      if (type === 204) {
+        return MODIFY_BUFFER;
+      }
+      throw new Error(`Unexpected request type ${type}`);
+    });
+
+    const service = new LookinCliService({
+      fixedEndpoint: { host: '127.0.0.1', port: 47175, transport: 'simulator' },
+      bridgeClient: createBridgeStub() as any,
+    });
+
+    await expect(
+      service.modifyView({ oid: 42, attribute: 'hidden', value: true }),
+    ).rejects.toMatchObject<Partial<LookinError>>({
+      code: 'VALIDATION_INVALID_TARGET',
+      message: expect.stringContaining('layerOid'),
+    });
+
+    expect(requestMock).toHaveBeenCalledTimes(1);
+    expect(requestMock).toHaveBeenCalledWith(202, undefined, 15000);
+  });
+
   it('allows text modification when the provided id matches the view oid', async () => {
     requestMock.mockImplementation(async (type: number) => {
       if (type === 202) {
@@ -150,6 +177,112 @@ describe('LookinCliService.modifyView target validation', () => {
     );
     expect(bridge.encode).toHaveBeenCalledOnce();
   });
+
+  it('uses setHidden: for layer hidden mutations', async () => {
+    requestMock.mockImplementation(async (type: number) => {
+      if (type === 202) {
+        return HIERARCHY_BUFFER;
+      }
+      if (type === 204) {
+        return MODIFY_BUFFER;
+      }
+      throw new Error(`Unexpected request type ${type}`);
+    });
+
+    const bridge = createBridgeStub();
+    const service = new LookinCliService({
+      fixedEndpoint: { host: '127.0.0.1', port: 47175, transport: 'simulator' },
+      bridgeClient: bridge as any,
+    });
+
+    await service.modifyView({
+      oid: 414,
+      attribute: 'hidden',
+      value: true,
+    });
+
+    expect(bridge.encode).toHaveBeenCalledOnce();
+    expect(bridge.encode).toHaveBeenCalledWith(
+      expect.objectContaining({
+          $class: 'LookinConnectionAttachment',
+          data: expect.objectContaining({
+            $class: 'LookinAttributeModification',
+            targetOid: 414,
+            setterSelector: 'setHidden:',
+            attrType: 14,
+            value: true,
+        }),
+      }),
+    );
+  });
+
+  it('surfaces remote modification errors instead of returning an empty success payload', async () => {
+    requestMock.mockImplementation(async (type: number) => {
+      if (type === 202) {
+        return HIERARCHY_BUFFER;
+      }
+      if (type === 204) {
+        return MODIFY_BUFFER;
+      }
+      throw new Error(`Unexpected request type ${type}`);
+    });
+
+    const bridge = {
+      encode: vi.fn().mockResolvedValue(Buffer.from('encoded-request').toString('base64')),
+      decode: vi.fn().mockImplementation(async (base64: string) => {
+        if (base64 === HIERARCHY_BUFFER.toString('base64')) {
+          return {
+            $class: 'LookinConnectionResponseAttachment',
+            data: {
+              $class: 'LookinHierarchyInfo',
+              displayItems: [
+                {
+                  $class: 'LookinDisplayItem',
+                  layerObject: {
+                    $class: 'LookinObject',
+                    classChainList: ['CALayer'],
+                    oid: 414,
+                  },
+                  viewObject: {
+                    $class: 'LookinObject',
+                    classChainList: ['UILabel'],
+                    oid: 42,
+                  },
+                },
+              ],
+            },
+          };
+        }
+        if (base64 === MODIFY_BUFFER.toString('base64')) {
+          return {
+            $class: 'LookinConnectionResponseAttachment',
+            error: {
+              domain: 'LookinError',
+              code: -500,
+              description: 'Failed to get target object in iOS app',
+            },
+          };
+        }
+        throw new Error(`Unexpected decode payload: ${base64}`);
+      }),
+    };
+
+    const service = new LookinCliService({
+      fixedEndpoint: { host: '127.0.0.1', port: 47175, transport: 'simulator' },
+      bridgeClient: bridge as any,
+    });
+
+    await expect(
+      service.modifyView({ oid: 414, attribute: 'hidden', value: true }),
+    ).rejects.toMatchObject({
+      code: 'PROTOCOL_REMOTE_ERROR',
+      message: expect.stringContaining('Failed to get target object in iOS app'),
+      details: expect.objectContaining({
+        domain: 'LookinError',
+        remoteCode: -500,
+      }),
+    });
+  });
 });
 
 // ─── modifyView response should include userCustomTitle in attributesGroupList ───
@@ -164,6 +297,7 @@ describe('LookinCliService.modifyView — userCustomTitle in response', () => {
 
   it('includes userCustomTitle in updatedDetail.attributesGroupList', async () => {
     requestMock.mockImplementation(async (type: number) => {
+      if (type === 202) return HIERARCHY_BUFFER;
       if (type === 204) return MODIFY_WITH_TITLE_BUFFER;
       throw new Error(`Unexpected request type ${type}`);
     });
@@ -171,6 +305,29 @@ describe('LookinCliService.modifyView — userCustomTitle in response', () => {
     const bridge = {
       encode: vi.fn().mockResolvedValue(Buffer.from('encoded-request').toString('base64')),
       decode: vi.fn().mockImplementation(async (base64: string) => {
+        if (base64 === HIERARCHY_BUFFER.toString('base64')) {
+          return {
+            $class: 'LookinConnectionResponseAttachment',
+            data: {
+              $class: 'LookinHierarchyInfo',
+              displayItems: [
+                {
+                  $class: 'LookinDisplayItem',
+                  layerObject: {
+                    $class: 'LookinObject',
+                    classChainList: ['CALayer'],
+                    oid: 42,
+                  },
+                  viewObject: {
+                    $class: 'LookinObject',
+                    classChainList: ['UILabel'],
+                    oid: 41,
+                  },
+                },
+              ],
+            },
+          };
+        }
         if (base64 === MODIFY_WITH_TITLE_BUFFER.toString('base64')) {
           return {
             $class: 'LookinConnectionResponseAttachment',

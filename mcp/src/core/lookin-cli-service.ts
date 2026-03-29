@@ -31,7 +31,7 @@ export const ATTR_WHITELIST: Record<
   string,
   { setter: string; attrType: number; target: 'layer' | 'view' }
 > = {
-  hidden: { setter: 'setIsHidden:', attrType: 14, target: 'layer' },
+  hidden: { setter: 'setHidden:', attrType: 14, target: 'layer' },
   alpha: { setter: 'setOpacity:', attrType: 12, target: 'layer' },
   frame: { setter: 'setFrame:', attrType: 20, target: 'layer' },
   backgroundColor: {
@@ -466,15 +466,12 @@ export class LookinCliService {
     }
 
     const endpoint = await this.resolveEndpoint();
-    let scopeKey: string | undefined = this.getActiveScopeKey(endpoint) ?? undefined;
-    if (spec.target === 'view') {
-      scopeKey = await this.validateModifyTarget(
-        args.oid,
-        spec.target,
-        args.attribute,
-        endpoint,
-      );
-    }
+    const scopeKey = await this.validateModifyTarget(
+      args.oid,
+      spec.target,
+      args.attribute,
+      endpoint,
+    );
 
     try {
       const response = await this.withSession(async ({ session }) => {
@@ -505,6 +502,19 @@ export class LookinCliService {
         throw new LookinError(
           'PROTOCOL_UNEXPECTED_RESPONSE',
           `Unexpected response class: ${response.$class}`,
+        );
+      }
+
+      if (response.error) {
+        throw new LookinError(
+          'PROTOCOL_REMOTE_ERROR',
+          response.error.description ??
+            response.error.localizedDescription ??
+            'Remote modification failed',
+          {
+            domain: response.error.domain ?? null,
+            remoteCode: response.error.code ?? null,
+          },
         );
       }
 

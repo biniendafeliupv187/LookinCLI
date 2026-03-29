@@ -375,7 +375,7 @@ describe('ATTR_WHITELIST', () => {
     const spec = ATTR_WHITELIST.hidden;
     expect(spec.attrType).toBe(14);
     expect(spec.target).toBe('layer');
-    expect(spec.setter).toBe('setIsHidden:');
+    expect(spec.setter).toBe('setHidden:');
   });
 
   it('alpha maps to Float type with layer target', () => {

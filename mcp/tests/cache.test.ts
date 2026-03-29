@@ -41,6 +41,15 @@ describe('CacheManager', () => {
       cache.clear();
       expect(cache.getHierarchy()).toBeNull();
     });
+
+    it('keeps hierarchies isolated across scope keys', () => {
+      cache.setHierarchy('scope-a', hierarchyData);
+      cache.setHierarchy('scope-b', { ...hierarchyData, appInfo: { appName: 'OtherApp' } });
+
+      expect(cache.getHierarchy('scope-a')?.data.appInfo.appName).toBe('TestApp');
+      expect(cache.getHierarchy('scope-b')?.data.appInfo.appName).toBe('OtherApp');
+      expect(cache.getHierarchy('scope-c')).toBeNull();
+    });
   });
 
   // ─── 10.1: view detail cache stores by oid ───
@@ -78,6 +87,15 @@ describe('CacheManager', () => {
       cache.clear();
       expect(cache.getViewDetail(42)).toBeNull();
       expect(cache.getViewDetail(99)).toBeNull();
+    });
+
+    it('isolates view detail cache by scope key', () => {
+      cache.setViewDetail('scope-a', 42, viewData);
+      cache.setViewDetail('scope-b', 42, { oid: 42, attrGroups: [{ identifier: 'Other' }] });
+
+      expect(cache.getViewDetail('scope-a', 42)?.data.attrGroups[0].identifier).toBe('Class');
+      expect(cache.getViewDetail('scope-b', 42)?.data.attrGroups[0].identifier).toBe('Other');
+      expect(cache.getViewDetail('scope-c', 42)).toBeNull();
     });
   });
 
@@ -141,6 +159,17 @@ describe('CacheManager', () => {
       const idx2 = cache.getSearchIndex();
       expect(idx1).not.toBe(idx2); // rebuilt
     });
+
+    it('isolates search index by scope key', () => {
+      cache.setHierarchy('scope-a', hierarchyData);
+      cache.setHierarchy('scope-b', {
+        ...hierarchyData,
+        displayItems: [],
+      });
+
+      expect(cache.getSearchIndex('scope-a')).toHaveLength(2);
+      expect(cache.getSearchIndex('scope-b')).toHaveLength(0);
+    });
   });
 
   // ─── 10.1: markHierarchyStale ───
@@ -158,6 +187,16 @@ describe('CacheManager', () => {
       const entry = cache.getHierarchy();
       expect(entry).not.toBeNull();
       expect(entry!.stale).toBe(true);
+    });
+
+    it('marks only the targeted scope as stale', () => {
+      cache.setHierarchy('scope-a', hierarchyData);
+      cache.setHierarchy('scope-b', hierarchyData);
+
+      cache.markHierarchyStale('scope-a');
+
+      expect(cache.getHierarchy('scope-a')?.stale).toBe(true);
+      expect(cache.getHierarchy('scope-b')?.stale).toBe(false);
     });
   });
 

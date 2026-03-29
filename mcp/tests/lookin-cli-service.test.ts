@@ -217,6 +217,119 @@ describe('LookinCliService.modifyView — userCustomTitle in response', () => {
   });
 });
 
+describe('LookinCliService scoped cache routing', () => {
+  beforeEach(() => {
+    requestMock.mockReset();
+    closeMock.mockReset();
+  });
+
+  it('routes getView cache writes to the active scope for the current endpoint', async () => {
+    const cache = new CacheManager();
+    const endpoint = { host: '127.0.0.1', port: 47175, transport: 'simulator' as const };
+    const endpointCacheKey = 'simulator:127.0.0.1:47175';
+    const scopeA = 'com.test.a::iPhone A::A';
+    const scopeB = 'com.test.b::iPhone B::B';
+
+    cache.setHierarchy(scopeA, {
+      $class: 'LookinHierarchyInfo',
+      appInfo: {
+        appName: 'App A',
+        appBundleIdentifier: 'com.test.a',
+        deviceDescription: 'iPhone A',
+      },
+      displayItems: [{ viewObject: { oid: 111, classChainList: ['UILabel'] } }],
+    });
+    cache.setHierarchy(scopeB, {
+      $class: 'LookinHierarchyInfo',
+      appInfo: {
+        appName: 'App B',
+        appBundleIdentifier: 'com.test.b',
+        deviceDescription: 'iPhone B',
+      },
+      displayItems: [{ viewObject: { oid: 222, classChainList: ['UILabel'] } }],
+    });
+    (cache as any).setActiveScopeKey(endpointCacheKey, scopeB);
+
+    requestMock.mockImplementation(async (type: number) => {
+      if (type === 210) {
+        return MODIFY_BUFFER;
+      }
+      throw new Error(`Unexpected request type ${type}`);
+    });
+
+    const bridge = {
+      encode: vi.fn().mockResolvedValue(Buffer.from('encoded-request').toString('base64')),
+      decode: vi.fn().mockImplementation(async (base64: string) => {
+        if (base64 === MODIFY_BUFFER.toString('base64')) {
+          return {
+            $class: 'LookinConnectionResponseAttachment',
+            data: [],
+          };
+        }
+        throw new Error(`Unexpected decode payload: ${base64}`);
+      }),
+    };
+
+    const service = new LookinCliService({
+      fixedEndpoint: endpoint,
+      cache,
+      bridgeClient: bridge as any,
+    });
+
+    await service.getView(222);
+
+    expect(cache.getViewDetail(scopeA, 222)).toBeNull();
+    expect(cache.getViewDetail(scopeB, 222)).not.toBeNull();
+  });
+
+  it('falls back to active-scope cached app info when ping fails', async () => {
+    const cache = new CacheManager();
+    const endpoint = { host: '127.0.0.1', port: 47175, transport: 'simulator' as const };
+    const endpointCacheKey = 'simulator:127.0.0.1:47175';
+    const scopeB = 'com.test.b::iPhone B::B';
+
+    cache.setHierarchy(scopeB, {
+      $class: 'LookinHierarchyInfo',
+      appInfo: {
+        appName: 'Cached App B',
+        appBundleIdentifier: 'com.test.b',
+        deviceDescription: 'iPhone B',
+        osDescription: 'iOS 18.2',
+        osMainVersion: 18,
+        deviceType: 1,
+        serverVersion: 7,
+        serverReadableVersion: '7.0',
+        screenWidth: 430,
+        screenHeight: 932,
+        screenScale: 3,
+      },
+      displayItems: [],
+    });
+    cache.setActiveScopeKey(endpointCacheKey, scopeB);
+
+    AppSessionMock.mockImplementationOnce(() => ({
+      ping: vi.fn().mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:47175')),
+      request: requestMock,
+      close: closeMock,
+    }) as any);
+
+    const service = new LookinCliService({
+      fixedEndpoint: endpoint,
+      cache,
+      bridgeClient: createBridgeStub() as any,
+    });
+
+    const result = await service.getAppInfo();
+
+    expect(result.appName).toBe('Cached App B');
+    expect(result.bundleIdentifier).toBe('com.test.b');
+    expect(result._meta).toMatchObject({
+      cacheHit: true,
+      source: 'cache',
+    });
+  });
+});
+
 // ─── Fix 1: extractTextFromAttrGroups misses non-label groups ───
 
 const HIERARCHY_WITH_BUTTON_BUFFER = Buffer.from('hierarchy-with-button');

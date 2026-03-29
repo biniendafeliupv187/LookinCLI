@@ -78,4 +78,31 @@ describe('DeviceDiscovery', () => {
       expect(result).toBeNull();
     }
   });
+
+  it('probeFirst skips reachable but protocol-incompatible endpoints', async () => {
+    const discovery = new DeviceDiscovery();
+    const incompatibleUsb: DeviceEndpoint = {
+      host: '127.0.0.1',
+      port: 47175,
+      transport: 'usb',
+      deviceID: 1,
+    };
+    const compatibleSimulator: DeviceEndpoint = {
+      host: '127.0.0.1',
+      port: 47164,
+      transport: 'simulator',
+    };
+
+    (discovery as any).usb.discoverEndpoints = async () => [incompatibleUsb];
+    (discovery as any).simulator.getEndpoints = () => [compatibleSimulator];
+    (discovery as any).usbProbe = async () => true;
+    (discovery as any).tcpProbe = async () => true;
+    (discovery as any).validateEndpoint = async (endpoint: DeviceEndpoint) => ({
+      compatible: endpoint.port === 47164,
+      serverVersion: endpoint.port === 47164 ? 7 : 999,
+    });
+
+    const result = await discovery.probeFirst(100);
+    expect(result).toEqual(compatibleSimulator);
+  });
 });

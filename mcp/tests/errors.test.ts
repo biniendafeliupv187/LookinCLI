@@ -1,16 +1,38 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import * as net from 'node:net';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { FrameEncoder } from '../src/core/transport.js';
 import { registerStatusTool } from '../src/mcp/status-tool.js';
 import { registerHierarchyTool } from '../src/mcp/hierarchy-tool.js';
 import { registerGetViewTool } from '../src/mcp/view-tool.js';
 import { LookinError, classifyError, errorResponse } from '../src/core/errors.js';
 import { DeviceDiscovery } from '../src/core/discovery.js';
 
-// ─── Helpers ───
+const { appSessionMock } = vi.hoisted(() => ({
+  appSessionMock: vi.fn(),
+}));
+
+vi.mock('../src/core/app-session.js', () => ({
+  LookinRequestType: {
+    Ping: 200,
+    Hierarchy: 202,
+    AllAttrGroups: 210,
+  },
+  AppSession: appSessionMock,
+}));
+
+function resetAppSessionMock(): void {
+  appSessionMock.mockReset();
+  appSessionMock.mockImplementation(() => ({
+    ping: vi.fn().mockResolvedValue({
+      $class: 'LookinConnectionResponseAttachment',
+      lookinServerVersion: 7,
+      appIsInBackground: false,
+    }),
+    request: vi.fn().mockResolvedValue(Buffer.alloc(0)),
+    close: vi.fn(),
+  }));
+}
 
 function parseToolResult(result: any): any {
   return JSON.parse(result.content[0].text);
@@ -29,8 +51,6 @@ async function setupMcpPair(
   await Promise.all([server.connect(st), client.connect(ct)]);
   return { client, server };
 }
-
-// ─── Unit: LookinError ───
 
 describe('LookinError', () => {
   it('creates error with code, message, and details', () => {
@@ -59,8 +79,6 @@ describe('LookinError', () => {
     expect(json).not.toHaveProperty('details');
   });
 });
-
-// ─── Unit: classifyError ───
 
 describe('classifyError', () => {
   it('passes through existing LookinError unchanged', () => {
@@ -125,8 +143,6 @@ describe('classifyError', () => {
   });
 });
 
-// ─── Unit: errorResponse ───
-
 describe('errorResponse', () => {
   it('returns structured MCP content with code', () => {
     const err = new Error('Request type=200 tag=1 timeout after 5000ms');
@@ -146,41 +162,24 @@ describe('errorResponse', () => {
   });
 });
 
-// ─── Integration: Transport timeout produces structured error ───
-
 describe('transport timeout structured error', () => {
-  let mockServer: net.Server | null = null;
   let client: Client | null = null;
   let mcpServer: McpServer | null = null;
 
   afterEach(async () => {
+    resetAppSessionMock();
     if (client) { await client.close(); client = null; }
     if (mcpServer) { await mcpServer.close(); mcpServer = null; }
-    if (mockServer) { mockServer.close(); mockServer = null; }
   });
 
-  /**
-   * Creates a "black hole" server: accepts TCP connections but never responds.
-   * This causes the correlator to time out.
-   */
-  function createBlackHoleServer(): Promise<{ server: net.Server; port: number }> {
-    return new Promise((resolve) => {
-      const server = net.createServer((_socket) => {
-        // Intentionally never respond — triggers correlator timeout
-      });
-      server.listen(0, '127.0.0.1', () => {
-        const addr = server.address() as net.AddressInfo;
-        resolve({ server, port: addr.port });
-      });
-    });
-  }
-
   it('status tool returns TRANSPORT_TIMEOUT code on timeout', async () => {
-    const { server, port } = await createBlackHoleServer();
-    mockServer = server;
+    appSessionMock.mockImplementationOnce(() => ({
+      ping: vi.fn().mockRejectedValue(new Error('Request type=200 tag=1 timeout after 5000ms')),
+      close: vi.fn(),
+    }));
 
     const pair = await setupMcpPair((s) =>
-      registerStatusTool(s, { host: '127.0.0.1', port, transport: 'simulator' }),
+      registerStatusTool(s, { host: '127.0.0.1', port: 47164, transport: 'simulator' }),
     );
     client = pair.client;
     mcpServer = pair.server;
@@ -194,11 +193,13 @@ describe('transport timeout structured error', () => {
   });
 
   it('get_hierarchy returns TRANSPORT_TIMEOUT code on timeout', async () => {
-    const { server, port } = await createBlackHoleServer();
-    mockServer = server;
+    appSessionMock.mockImplementationOnce(() => ({
+      request: vi.fn().mockRejectedValue(new Error('Request type=202 tag=1 timeout after 15000ms')),
+      close: vi.fn(),
+    }));
 
     const pair = await setupMcpPair((s) =>
-      registerHierarchyTool(s, { host: '127.0.0.1', port, transport: 'simulator' }),
+      registerHierarchyTool(s, { host: '127.0.0.1', port: 47164, transport: 'simulator' }),
     );
     client = pair.client;
     mcpServer = pair.server;
@@ -208,21 +209,25 @@ describe('transport timeout structured error', () => {
 
     expect(data.error).toContain('timeout');
     expect(data.code).toBe('TRANSPORT_TIMEOUT');
-  }, 20000);
+  });
 });
-
-// ─── Integration: Connection refused produces structured error ───
 
 describe('connection refused structured error', () => {
   let client: Client | null = null;
   let mcpServer: McpServer | null = null;
 
   afterEach(async () => {
+    resetAppSessionMock();
     if (client) { await client.close(); client = null; }
     if (mcpServer) { await mcpServer.close(); mcpServer = null; }
   });
 
   it('status tool returns TRANSPORT_REFUSED code when port unreachable', async () => {
+    appSessionMock.mockImplementationOnce(() => ({
+      ping: vi.fn().mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:19998')),
+      close: vi.fn(),
+    }));
+
     const pair = await setupMcpPair((s) =>
       registerStatusTool(s, { host: '127.0.0.1', port: 19998, transport: 'simulator' }),
     );
@@ -238,6 +243,11 @@ describe('connection refused structured error', () => {
   });
 
   it('get_hierarchy returns TRANSPORT_REFUSED code when port unreachable', async () => {
+    appSessionMock.mockImplementationOnce(() => ({
+      request: vi.fn().mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:19998')),
+      close: vi.fn(),
+    }));
+
     const pair = await setupMcpPair((s) =>
       registerHierarchyTool(s, { host: '127.0.0.1', port: 19998, transport: 'simulator' }),
     );
@@ -252,6 +262,11 @@ describe('connection refused structured error', () => {
   });
 
   it('get_view returns TRANSPORT_REFUSED code when port unreachable', async () => {
+    appSessionMock.mockImplementationOnce(() => ({
+      request: vi.fn().mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:19998')),
+      close: vi.fn(),
+    }));
+
     const pair = await setupMcpPair((s) =>
       registerGetViewTool(s, { host: '127.0.0.1', port: 19998, transport: 'simulator' }),
     );
@@ -265,13 +280,13 @@ describe('connection refused structured error', () => {
   });
 });
 
-// ─── Integration: Discovery failure returns DISCOVERY_NO_DEVICE ───
-
 describe('discovery failure structured error', () => {
   let client: Client | null = null;
   let mcpServer: McpServer | null = null;
 
   afterEach(async () => {
+    vi.restoreAllMocks();
+    resetAppSessionMock();
     if (client) { await client.close(); client = null; }
     if (mcpServer) { await mcpServer.close(); mcpServer = null; }
   });
@@ -294,7 +309,7 @@ describe('discovery failure structured error', () => {
 
     expect(data.connected).toBe(false);
     expect(data.code).toBe('DISCOVERY_NO_DEVICE');
-  }, 30000);
+  });
 
   it('get_hierarchy returns DISCOVERY_NO_DEVICE when no endpoint found', async () => {
     vi.spyOn(DeviceDiscovery.prototype, 'probeFirst').mockResolvedValueOnce(null);
@@ -303,7 +318,7 @@ describe('discovery failure structured error', () => {
       { name: 'test', version: '0.1.1' },
       { capabilities: { tools: {} } },
     );
-    registerFn(mcpServer); // no fixedEndpoint
+    registerFn(mcpServer);
 
     client = new Client({ name: 'test-client', version: '0.1.1' });
     const [ct, st] = InMemoryTransport.createLinkedPair();
@@ -313,5 +328,5 @@ describe('discovery failure structured error', () => {
     const data = parseToolResult(result);
 
     expect(data.code).toBe('DISCOVERY_NO_DEVICE');
-  }, 30000);
+  });
 });

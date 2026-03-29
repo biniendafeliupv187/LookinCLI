@@ -1,5 +1,9 @@
 import * as net from 'node:net';
 import { UsbmuxdClient } from './usbmuxd.js';
+import { AppSession } from './app-session.js';
+import { BridgeClient } from './bridge-client.js';
+
+const SUPPORTED_LOOKIN_SERVER_VERSION = 7;
 
 /** A candidate endpoint to connect to a LookinServer instance */
 export interface DeviceEndpoint {
@@ -79,6 +83,11 @@ export class USBMuxEndpointProvider {
 export class DeviceDiscovery {
   private usb = new USBMuxEndpointProvider();
   private simulator = new SimulatorEndpointProvider();
+  private bridge: BridgeClient;
+
+  constructor(bridgeClient?: BridgeClient) {
+    this.bridge = bridgeClient ?? new BridgeClient();
+  }
 
   /** Get all candidate endpoints (static, no usbmuxd query), USB first */
   getAllEndpoints(): DeviceEndpoint[] {
@@ -95,18 +104,48 @@ export class DeviceDiscovery {
     const usbEndpoints = await this.usb.discoverEndpoints(500);
     for (const ep of usbEndpoints) {
       if (await this.usbProbe(ep, timeoutMs)) {
-        return ep;
+        const validation = await this.validateEndpoint(ep, timeoutMs);
+        if (validation.compatible) {
+          return ep;
+        }
       }
     }
 
     // 2. Try simulator ports via TCP
     for (const ep of this.simulator.getEndpoints()) {
       if (await this.tcpProbe(ep, timeoutMs)) {
-        return ep;
+        const validation = await this.validateEndpoint(ep, timeoutMs);
+        if (validation.compatible) {
+          return ep;
+        }
       }
     }
 
     return null;
+  }
+
+  private async validateEndpoint(
+    ep: DeviceEndpoint,
+    timeoutMs: number,
+  ): Promise<{ compatible: boolean; serverVersion: number | null }> {
+    const session = new AppSession(ep, this.bridge, {
+      connectTimeoutMs: timeoutMs,
+    });
+    try {
+      const response = await session.ping(timeoutMs);
+      const serverVersion =
+        typeof response?.lookinServerVersion === 'number'
+          ? response.lookinServerVersion
+          : null;
+      return {
+        compatible: serverVersion === SUPPORTED_LOOKIN_SERVER_VERSION,
+        serverVersion,
+      };
+    } catch {
+      return { compatible: false, serverVersion: null };
+    } finally {
+      await session.close();
+    }
   }
 
   /** Probe a USB endpoint by attempting a usbmuxd tunnel + PeerTalk ping */

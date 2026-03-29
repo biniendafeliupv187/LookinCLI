@@ -26,6 +26,12 @@ interface CacheEntry<T> {
   accessed: boolean; // tracks first access for cacheHit
 }
 
+interface CacheScope {
+  hierarchy: CacheEntry<any> | null;
+  viewDetails: Map<number, CacheEntry<any>>;
+  searchIndex: SearchIndexItem[] | null;
+}
+
 /** Slow-operation threshold in milliseconds */
 const SLOW_THRESHOLD_MS = 3000;
 
@@ -44,11 +50,23 @@ const DEFAULT_MAX_VIEW_DETAILS = 500;
  * re-populate the cache transparently.
  */
 export class CacheManager {
-  private hierarchy: CacheEntry<any> | null = null;
-  private viewDetails = new Map<number, CacheEntry<any>>();
-  private searchIndex: SearchIndexItem[] | null = null;
+  private scopes = new Map<string, CacheScope>();
+  private activeScopeByEndpoint = new Map<string, string>();
   private readonly ttlMs: number;
   private readonly maxViewDetails: number;
+
+  // Compatibility accessors for existing tests that inspect the default scope.
+  private get hierarchy(): CacheEntry<any> | null {
+    return this.getScope('global').hierarchy;
+  }
+
+  private get viewDetails(): Map<number, CacheEntry<any>> {
+    return this.getScope('global').viewDetails;
+  }
+
+  private get searchIndex(): SearchIndexItem[] | null {
+    return this.getScope('global').searchIndex;
+  }
 
   constructor(ttlMs: number = DEFAULT_TTL_MS, maxViewDetails: number = DEFAULT_MAX_VIEW_DETAILS) {
     this.ttlMs = ttlMs;
@@ -60,59 +78,107 @@ export class CacheManager {
     return Date.now() - entry.storedAt > this.ttlMs;
   }
 
+  private getScope(scopeKey = 'global'): CacheScope {
+    let scope = this.scopes.get(scopeKey);
+    if (!scope) {
+      scope = {
+        hierarchy: null,
+        viewDetails: new Map<number, CacheEntry<any>>(),
+        searchIndex: null,
+      };
+      this.scopes.set(scopeKey, scope);
+    }
+    return scope;
+  }
+
+  private evictScopeIfEmpty(scopeKey: string, scope: CacheScope): void {
+    if (!scope.hierarchy && scope.viewDetails.size === 0 && !scope.searchIndex) {
+      this.scopes.delete(scopeKey);
+    }
+  }
+
+  getScopeKeys(): string[] {
+    return [...this.scopes.keys()];
+  }
+
+  setActiveScopeKey(endpointKey: string, scopeKey: string): void {
+    this.activeScopeByEndpoint.set(endpointKey, scopeKey);
+  }
+
+  getActiveScopeKey(endpointKey: string): string | null {
+    return this.activeScopeByEndpoint.get(endpointKey) ?? null;
+  }
+
   // ─── Hierarchy ───
 
-  setHierarchy(data: any): void {
-    this.hierarchy = { data, storedAt: Date.now(), stale: false, accessed: false };
-    this.searchIndex = null;
-    this.viewDetails.clear(); // old OIDs are invalid after hierarchy refresh
+  setHierarchy(scopeKeyOrData: string | any, maybeData?: any): void {
+    const scopeKey = typeof scopeKeyOrData === 'string' ? scopeKeyOrData : 'global';
+    const data = typeof scopeKeyOrData === 'string' ? maybeData : scopeKeyOrData;
+    const scope = this.getScope(scopeKey);
+    scope.hierarchy = { data, storedAt: Date.now(), stale: false, accessed: false };
+    scope.searchIndex = null;
+    scope.viewDetails.clear(); // old OIDs are invalid after hierarchy refresh
   }
 
-  getHierarchy(): (CacheEntry<any> & { cacheHit: boolean }) | null {
-    if (!this.hierarchy) return null;
-    if (this.isExpired(this.hierarchy)) {
-      // TTL expired — evict and return null so tools fetch live
-      this.hierarchy = null;
-      this.searchIndex = null;
+  getHierarchy(scopeKey = 'global'): (CacheEntry<any> & { cacheHit: boolean }) | null {
+    const scope = this.getScope(scopeKey);
+    if (!scope.hierarchy) return null;
+    if (this.isExpired(scope.hierarchy)) {
+      scope.hierarchy = null;
+      scope.searchIndex = null;
+      scope.viewDetails.clear();
+      this.evictScopeIfEmpty(scopeKey, scope);
       return null;
     }
-    const cacheHit = this.hierarchy.accessed;
-    this.hierarchy.accessed = true;
-    return { ...this.hierarchy, cacheHit };
+    const cacheHit = scope.hierarchy.accessed;
+    scope.hierarchy.accessed = true;
+    return { ...scope.hierarchy, cacheHit };
   }
 
-  peekHierarchy(): CacheEntry<any> | null {
-    if (!this.hierarchy) return null;
-    if (this.isExpired(this.hierarchy)) {
-      this.hierarchy = null;
-      this.searchIndex = null;
+  peekHierarchy(scopeKey = 'global'): CacheEntry<any> | null {
+    const scope = this.getScope(scopeKey);
+    if (!scope.hierarchy) return null;
+    if (this.isExpired(scope.hierarchy)) {
+      scope.hierarchy = null;
+      scope.searchIndex = null;
+      scope.viewDetails.clear();
+      this.evictScopeIfEmpty(scopeKey, scope);
       return null;
     }
-    return { ...this.hierarchy };
+    return { ...scope.hierarchy };
   }
 
-  markHierarchyStale(): void {
-    if (this.hierarchy) {
-      this.hierarchy.stale = true;
+  markHierarchyStale(scopeKey = 'global'): void {
+    const scope = this.getScope(scopeKey);
+    if (scope.hierarchy) {
+      scope.hierarchy.stale = true;
     }
   }
 
   // ─── View Details ───
 
-  setViewDetail(oid: number, data: any): void {
-    this.viewDetails.set(oid, { data, storedAt: Date.now(), stale: false, accessed: false });
-    if (this.viewDetails.size > this.maxViewDetails) {
+  setViewDetail(scopeKeyOrOid: string | number, oidOrData: number | any, maybeData?: any): void {
+    const scopeKey = typeof scopeKeyOrOid === 'string' ? scopeKeyOrOid : 'global';
+    const oid = typeof scopeKeyOrOid === 'string' ? oidOrData as number : scopeKeyOrOid;
+    const data = typeof scopeKeyOrOid === 'string' ? maybeData : oidOrData;
+    const scope = this.getScope(scopeKey);
+    scope.viewDetails.set(oid, { data, storedAt: Date.now(), stale: false, accessed: false });
+    if (scope.viewDetails.size > this.maxViewDetails) {
       // Evict oldest entry (Map iteration order = insertion order)
-      const oldest = this.viewDetails.keys().next().value;
-      if (oldest !== undefined) this.viewDetails.delete(oldest);
+      const oldest = scope.viewDetails.keys().next().value;
+      if (oldest !== undefined) scope.viewDetails.delete(oldest);
     }
   }
 
-  getViewDetail(oid: number): (CacheEntry<any> & { cacheHit: boolean }) | null {
-    const entry = this.viewDetails.get(oid);
+  getViewDetail(scopeKeyOrOid: string | number, maybeOid?: number): (CacheEntry<any> & { cacheHit: boolean }) | null {
+    const scopeKey = typeof scopeKeyOrOid === 'string' ? scopeKeyOrOid : 'global';
+    const oid = typeof scopeKeyOrOid === 'string' ? maybeOid! : scopeKeyOrOid;
+    const scope = this.getScope(scopeKey);
+    const entry = scope.viewDetails.get(oid);
     if (!entry) return null;
     if (this.isExpired(entry)) {
-      this.viewDetails.delete(oid);
+      scope.viewDetails.delete(oid);
+      this.evictScopeIfEmpty(scopeKey, scope);
       return null;
     }
     const cacheHit = entry.accessed;
@@ -120,40 +186,59 @@ export class CacheManager {
     return { ...entry, cacheHit };
   }
 
-  peekViewDetail(oid: number): CacheEntry<any> | null {
-    const entry = this.viewDetails.get(oid);
+  peekViewDetail(scopeKeyOrOid: string | number, maybeOid?: number): CacheEntry<any> | null {
+    const scopeKey = typeof scopeKeyOrOid === 'string' ? scopeKeyOrOid : 'global';
+    const oid = typeof scopeKeyOrOid === 'string' ? maybeOid! : scopeKeyOrOid;
+    const scope = this.getScope(scopeKey);
+    const entry = scope.viewDetails.get(oid);
     if (!entry) return null;
     if (this.isExpired(entry)) {
-      this.viewDetails.delete(oid);
+      scope.viewDetails.delete(oid);
+      this.evictScopeIfEmpty(scopeKey, scope);
       return null;
     }
     return { ...entry };
   }
 
-  invalidateViewDetail(oid: number): void {
-    this.viewDetails.delete(oid);
+  invalidateViewDetail(scopeKeyOrOid: string | number, maybeOid?: number): void {
+    const scopeKey = typeof scopeKeyOrOid === 'string' ? scopeKeyOrOid : 'global';
+    const oid = typeof scopeKeyOrOid === 'string' ? maybeOid! : scopeKeyOrOid;
+    const scope = this.getScope(scopeKey);
+    scope.viewDetails.delete(oid);
+    this.evictScopeIfEmpty(scopeKey, scope);
   }
 
   // ─── Search Index (derived from hierarchy) ───
 
-  getSearchIndex(): SearchIndexItem[] | null {
-    if (!this.hierarchy) return null;
-    if (this.isExpired(this.hierarchy)) {
-      this.hierarchy = null;
-      this.searchIndex = null;
+  getSearchIndex(scopeKey = 'global'): SearchIndexItem[] | null {
+    const scope = this.getScope(scopeKey);
+    if (!scope.hierarchy) return null;
+    if (this.isExpired(scope.hierarchy)) {
+      scope.hierarchy = null;
+      scope.searchIndex = null;
+      scope.viewDetails.clear();
+      this.evictScopeIfEmpty(scopeKey, scope);
       return null;
     }
-    if (this.searchIndex) return this.searchIndex;
-    this.searchIndex = buildSearchIndex(this.hierarchy.data.displayItems ?? []);
-    return this.searchIndex;
+    if (scope.searchIndex) return scope.searchIndex;
+    scope.searchIndex = buildSearchIndex(scope.hierarchy.data.displayItems ?? []);
+    return scope.searchIndex;
   }
 
   // ─── Clear ───
 
-  clear(): void {
-    this.hierarchy = null;
-    this.viewDetails.clear();
-    this.searchIndex = null;
+  clear(scopeKey?: string): void {
+    if (scopeKey) {
+      this.scopes.delete(scopeKey);
+      for (const [endpointKey, activeScopeKey] of this.activeScopeByEndpoint.entries()) {
+        if (activeScopeKey === scopeKey) {
+          this.activeScopeByEndpoint.delete(endpointKey);
+        }
+      }
+      return;
+    }
+    this.scopes.clear();
+    this.activeScopeByEndpoint.clear();
   }
 
   // ─── Cache Meta Builder ───

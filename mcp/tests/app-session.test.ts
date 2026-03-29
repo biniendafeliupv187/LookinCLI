@@ -1,119 +1,101 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as net from 'node:net';
-import { AppSession } from '../src/core/app-session.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { EventEmitter } from 'node:events';
 import { FrameEncoder } from '../src/core/transport.js';
-import { BridgeClient } from '../src/core/bridge-client.js';
 
-/**
- * Creates a minimal TCP server that speaks the Peertalk frame protocol.
- * Responds to Type 200 (ping) with a LookinConnectionResponseAttachment.
- */
-function createMockLookinServer(responseBase64: string): Promise<{ server: net.Server; port: number }> {
-  return new Promise((resolve) => {
-    const server = net.createServer((socket) => {
-      let buffer = Buffer.alloc(0);
+const socketState = {
+  mode: 'success' as 'success' | 'refused' | 'hang',
+  responseBase64:
+    'YnBsaXN0MDDUAQIDBAUGBwpYJHZlcnNpb25ZJGFyY2hpdmVyVCR0b3BYJG9iamVjdHMSAAGGoF8QD05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGkCwwdHlUkbnVsbNgNDg8QERITFBUWFxgZGhUYXxAQY3VycmVudERhdGFDb3VudF8QE2xvb2tpblNlcnZlclZlcnNpb25WJGNsYXNzUTBfEBFhcHBJc0luQmFja2dyb3VuZFExXmRhdGFUb3RhbENvdW50VWVycm9ygAIQB4ADgAAIEACAAoAAEAHSHyAhIlokY2xhc3NuYW1lWCRjbGFzc2VzXxAiTG9va2luQ29ubmVjdGlvblJlc3BvbnNlQXR0YWNobWVudKMjJCVfECJMb29raW5Db25uZWN0aW9uUmVzcG9uc2VBdHRhY2htZW50XxAaTG9va2luQ29ubmVjdGlvbkF0dGFjaG1lbnRYTlNPYmplY3QACAARABoAJAApADIANwBJAEwAUQBTAFgAXgBvAIIAmACfAKEAtQC3AMYAzADOANAA0gDUANUA1wDZANsA3QDiAO0A9gEbAR8BRAFhAAAAAAAAAgEAAAAAAAAAJgAAAAAAAAAAAAAAAAAAAWo=',
+};
 
-      socket.on('data', (data) => {
-        buffer = Buffer.concat([buffer, data]);
+class FakeSocket extends EventEmitter {
+  connect(_port: number, _host: string, onConnect?: () => void): this {
+    if (socketState.mode === 'success') {
+      setTimeout(() => onConnect?.(), 0);
+    } else if (socketState.mode === 'refused') {
+      setTimeout(() => this.emit('error', new Error('connect ECONNREFUSED 127.0.0.1:19999')), 0);
+    }
+    return this;
+  }
 
-        // Wait for full header (16 bytes)
-        while (buffer.byteLength >= 16) {
-          const type = buffer.readUInt32BE(4);
-          const tag = buffer.readUInt32BE(8);
-          const payloadSize = buffer.readUInt32BE(12);
-          const totalSize = 16 + payloadSize;
+  write(frame: Buffer): boolean {
+    if (socketState.mode !== 'success') {
+      return true;
+    }
 
-          if (buffer.byteLength < totalSize) break;
+    const type = frame.readUInt32BE(4);
+    const tag = frame.readUInt32BE(8);
+    const payloadBuf = Buffer.from(socketState.responseBase64, 'base64');
+    setTimeout(() => {
+      this.emit('data', FrameEncoder.encode(type, tag, payloadBuf));
+    }, 0);
+    return true;
+  }
 
-          // Consume the frame
-          buffer = buffer.subarray(totalSize);
-
-          // Respond with the given base64 as payload
-          const payloadBuf = Buffer.from(responseBase64, 'base64');
-          const responseFrame = FrameEncoder.encode(type, tag, payloadBuf);
-          socket.write(responseFrame);
-        }
-      });
-    });
-
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address() as net.AddressInfo;
-      resolve({ server, port: addr.port });
-    });
-  });
+  destroy(): void {
+    this.emit('close');
+  }
 }
 
-describe('AppSession', () => {
-  let mockServer: net.Server | null = null;
+vi.mock('node:net', () => ({
+  Socket: FakeSocket,
+}));
 
+const bridgeDecodeMock = vi.fn().mockResolvedValue({
+  $class: 'LookinConnectionResponseAttachment',
+  lookinServerVersion: 7,
+  appIsInBackground: false,
+});
+
+describe('AppSession', () => {
   afterEach(() => {
-    if (mockServer) {
-      mockServer.close();
-      mockServer = null;
-    }
+    socketState.mode = 'success';
+    bridgeDecodeMock.mockClear();
   });
 
   it('ping sends Type 200 and returns decoded response', async () => {
-    // Generate a fixture for the ping response
-    const { server, port } = await createMockLookinServer(
-      // This is the connectionResponse fixture base64 from bridge-fixtures.json
-      // (LookinConnectionResponseAttachment with serverVersion=7)
-      'YnBsaXN0MDDUAQIDBAUGBwpYJHZlcnNpb25ZJGFyY2hpdmVyVCR0b3BYJG9iamVjdHMSAAGGoF8QD05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGkCwwdHlUkbnVsbNgNDg8QERITFBUWFxgZGhUYXxAQY3VycmVudERhdGFDb3VudF8QE2xvb2tpblNlcnZlclZlcnNpb25WJGNsYXNzUTBfEBFhcHBJc0luQmFja2dyb3VuZFExXmRhdGFUb3RhbENvdW50VWVycm9ygAIQB4ADgAAIEACAAoAAEAHSHyAhIlokY2xhc3NuYW1lWCRjbGFzc2VzXxAiTG9va2luQ29ubmVjdGlvblJlc3BvbnNlQXR0YWNobWVudKMjJCVfECJMb29raW5Db25uZWN0aW9uUmVzcG9uc2VBdHRhY2htZW50XxAaTG9va2luQ29ubmVjdGlvbkF0dGFjaG1lbnRYTlNPYmplY3QACAARABoAJAApADIANwBJAEwAUQBTAFgAXgBvAIIAmACfAKEAtQC3AMYAzADOANAA0gDUANUA1wDZANsA3QDiAO0A9gEbAR8BRAFhAAAAAAAAAgEAAAAAAAAAJgAAAAAAAAAAAAAAAAAAAWo=',
+    const { AppSession } = await import('../src/core/app-session.js');
+    const session = new AppSession(
+      { host: '127.0.0.1', port: 47164, transport: 'simulator' },
+      { decode: bridgeDecodeMock } as any,
     );
-    mockServer = server;
-
-    const session = new AppSession({
-      host: '127.0.0.1',
-      port,
-      transport: 'simulator',
-    });
 
     try {
       const result = await session.ping();
-
       expect(result['$class']).toBe('LookinConnectionResponseAttachment');
       expect(result.lookinServerVersion).toBe(7);
       expect(result.appIsInBackground).toBe(false);
+      expect(bridgeDecodeMock).toHaveBeenCalledTimes(1);
     } finally {
       await session.close();
     }
   });
 
   it('ping rejects when server is unreachable', async () => {
-    const session = new AppSession({
-      host: '127.0.0.1',
-      port: 19999, // No server here
-      transport: 'simulator',
-    });
+    socketState.mode = 'refused';
+    const { AppSession } = await import('../src/core/app-session.js');
+    const session = new AppSession(
+      { host: '127.0.0.1', port: 19999, transport: 'simulator' },
+      { decode: bridgeDecodeMock } as any,
+    );
 
-    await expect(session.ping(500)).rejects.toThrow();
+    await expect(session.ping(500)).rejects.toThrow('ECONNREFUSED');
     await session.close();
   });
 
   it('connectViaTcp rejects with timeout error when TCP handshake hangs', async () => {
-    // Create a raw TCP socket that listens but never accepts (SYN backlog fills)
-    const blockingServer = net.createServer();
-    blockingServer.maxConnections = 0; // refuse new connections at OS level
-    await new Promise<void>((resolve) => {
-      blockingServer.listen(0, '127.0.0.1', resolve);
-    });
-    const port = (blockingServer.address() as net.AddressInfo).port;
-    // Pause accepting to simulate a hanging handshake
-    blockingServer.close();
-
-    // Use a non-routable IP to ensure the TCP SYN never gets a SYN-ACK.
-    // 192.0.2.1 is TEST-NET-1 (RFC 5737), packets are silently dropped.
+    socketState.mode = 'hang';
+    const { AppSession } = await import('../src/core/app-session.js');
     const session = new AppSession(
       { host: '192.0.2.1', port: 47175, transport: 'simulator' },
-      undefined,
+      { decode: bridgeDecodeMock } as any,
       { connectTimeoutMs: 300 },
     );
 
     try {
       const start = Date.now();
-      await expect(session.ping(10_000)).rejects.toThrow(/connect.*timeout/i);
+      await expect(session.ping(10_000)).rejects.toThrow(/connect timeout/i);
       const elapsed = Date.now() - start;
-      // Should timeout around 300ms, not wait for OS-level timeout (75-120s)
       expect(elapsed).toBeLessThan(2000);
     } finally {
       await session.close();
@@ -121,22 +103,15 @@ describe('AppSession', () => {
   }, 10_000);
 
   it('close cleans up TCP connection', async () => {
-    const { server, port } = await createMockLookinServer(
-      'YnBsaXN0MDDUAQIDBAUGBwpYJHZlcnNpb25ZJGFyY2hpdmVyVCR0b3BYJG9iamVjdHMSAAGGoF8QD05TS2V5ZWRBcmNoaXZlctEICVRyb290gAGkCwwdHlUkbnVsbNgNDg8QERITFBUWFxgZGhUYXxAQY3VycmVudERhdGFDb3VudF8QE2xvb2tpblNlcnZlclZlcnNpb25WJGNsYXNzUTBfEBFhcHBJc0luQmFja2dyb3VuZFExXmRhdGFUb3RhbENvdW50VWVycm9ygAIQB4ADgAAIEACAAoAAEAHSHyAhIlokY2xhc3NuYW1lWCRjbGFzc2VzXxAiTG9va2luQ29ubmVjdGlvblJlc3BvbnNlQXR0YWNobWVudKMjJCVfECJMb29raW5Db25uZWN0aW9uUmVzcG9uc2VBdHRhY2htZW50XxAaTG9va2luQ29ubmVjdGlvbkF0dGFjaG1lbnRYTlNPYmplY3QACAARABoAJAApADIANwBJAEwAUQBTAFgAXgBvAIIAmACfAKEAtQC3AMYAzADOANAA0gDUANUA1wDZANsA3QDiAO0A9gEbAR8BRAFhAAAAAAAAAgEAAAAAAAAAJgAAAAAAAAAAAAAAAAAAAWo=',
+    const { AppSession } = await import('../src/core/app-session.js');
+    const session = new AppSession(
+      { host: '127.0.0.1', port: 47164, transport: 'simulator' },
+      { decode: bridgeDecodeMock } as any,
     );
-    mockServer = server;
 
-    const session = new AppSession({
-      host: '127.0.0.1',
-      port,
-      transport: 'simulator',
-    });
-
-    // Connect by doing a ping
     await session.ping();
     await session.close();
 
-    // After close, ping should fail (connection closed)
-    await expect(session.ping(500)).rejects.toThrow();
+    await expect(session.ping(500)).rejects.toThrow('Session is closed');
   });
 });

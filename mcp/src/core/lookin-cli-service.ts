@@ -54,6 +54,7 @@ interface HierarchyFetchResult {
   cacheHit: boolean;
   source: 'cache' | 'live';
   stalePossible: boolean;
+  scopeKey: string;
 }
 
 interface EndpointSessionContext {
@@ -193,27 +194,26 @@ export class LookinCliService {
       return this.searchByText(query, text, startMs);
     }
 
-    const cachedIndex = this.cache?.getSearchIndex();
+    const fetched = await this.fetchHierarchyInfo();
+    const cachedIndex = this.cache?.getSearchIndex(fetched.scopeKey);
 
     if (cachedIndex) {
       const results = filterSearchResults(cachedIndex, query ?? '');
       const elapsedMs = Date.now() - startMs;
-      const stalePossible = this.cache?.peekHierarchy()?.stale ?? false;
+      const stalePossible = fetched.stalePossible;
       return {
         query: query ?? null,
         text: null,
         resultCount: results.length,
         results,
         _meta: CacheManager.buildMeta({
-          cacheHit: true,
-          source: 'cache',
+          cacheHit: fetched.cacheHit,
+          source: fetched.source,
           stalePossible,
           elapsedMs,
         }),
       };
     }
-
-    const fetched = await this.fetchHierarchyInfo();
     const flattened = flattenItems(fetched.hierarchyInfo.displayItems ?? []);
     const queryLower = (query ?? '').toLowerCase();
     const results: SearchResult[] = [];
@@ -259,29 +259,21 @@ export class LookinCliService {
   ): Promise<Record<string, unknown>> {
     let cacheHit = true;
     let source: 'cache' | 'live' = 'cache';
-    let stalePossible = this.cache?.peekHierarchy()?.stale ?? false;
+    const fetched = await this.fetchHierarchyInfo();
+    let stalePossible = this.cache?.peekHierarchy(fetched.scopeKey)?.stale ?? false;
+    cacheHit = fetched.cacheHit;
+    source = fetched.source;
+    stalePossible = fetched.stalePossible;
 
     let allCandidates: SearchResult[];
-    const cachedIndex = this.cache?.getSearchIndex();
-
+    const cachedIndex = this.cache?.getSearchIndex(fetched.scopeKey);
     if (cachedIndex) {
       allCandidates = filterSearchResults(cachedIndex, query ?? '');
     } else {
-      const fetched = await this.fetchHierarchyInfo();
-      cacheHit = fetched.cacheHit;
-      source = fetched.source;
-      stalePossible = fetched.stalePossible;
-
-      // Use cache if populated by fetchHierarchyInfo, otherwise build candidates from raw items
-      const postFetchIndex = this.cache?.getSearchIndex();
-      if (postFetchIndex) {
-        allCandidates = filterSearchResults(postFetchIndex, query ?? '');
-      } else {
-        allCandidates = buildCandidatesFromHierarchy(
-          fetched.hierarchyInfo.displayItems ?? [],
-          query,
-        );
-      }
+      allCandidates = buildCandidatesFromHierarchy(
+        fetched.hierarchyInfo.displayItems ?? [],
+        query,
+      );
     }
 
     let searchHint: string | undefined;
@@ -292,7 +284,7 @@ export class LookinCliService {
     }
 
     const candidates = allCandidates.slice(0, MAX_TEXT_CANDIDATES);
-    const results = await this.fetchTextMatches(candidates, textQuery);
+    const results = await this.fetchTextMatches(candidates, textQuery, fetched.scopeKey);
 
     const elapsedMs = Date.now() - startMs;
     const meta = CacheManager.buildMeta({ cacheHit, source, stalePossible, elapsedMs });
@@ -309,6 +301,7 @@ export class LookinCliService {
   private async fetchTextMatches(
     candidates: SearchResult[],
     textQuery: string,
+    scopeKey: string,
   ): Promise<SearchResult[]> {
     const textLower = textQuery.toLowerCase();
 
@@ -321,7 +314,7 @@ export class LookinCliService {
           batch.map(async (candidate) => {
             if (candidate.oid === 0) return null;
             try {
-              const viewData = await this.fetchViewAttrs(candidate.oid, session);
+              const viewData = await this.fetchViewAttrs(candidate.oid, session, scopeKey);
               const text = extractTextFromAttrGroups(viewData);
               if (text && text.toLowerCase().includes(textLower)) {
                 return { ...candidate, text };
@@ -361,8 +354,12 @@ export class LookinCliService {
   }
 
   async reload(): Promise<Record<string, unknown>> {
-    this.cache?.clear();
-    const hierarchyInfo = await this.fetchLiveHierarchy();
+    const endpoint = await this.resolveEndpoint();
+    const currentScopeKey = this.getActiveScopeKey(endpoint);
+    if (currentScopeKey) {
+      this.cache?.clear(currentScopeKey);
+    }
+    const hierarchyInfo = await this.fetchLiveHierarchy(endpoint);
     const displayItems: any[] = hierarchyInfo.displayItems ?? [];
     const appInfo = hierarchyInfo.appInfo;
 
@@ -379,7 +376,8 @@ export class LookinCliService {
 
   async getView(oid: number): Promise<Record<string, unknown>> {
     const startMs = Date.now();
-    const cachedView = this.cache?.getViewDetail(oid);
+    const fetched = await this.fetchHierarchyInfo();
+    const cachedView = this.cache?.getViewDetail(fetched.scopeKey, oid);
 
     if (cachedView) {
       const elapsedMs = Date.now() - startMs;
@@ -395,7 +393,7 @@ export class LookinCliService {
     }
 
     const result = await this.withSession(async ({ session }) =>
-      this.fetchViewAttrs(oid, session),
+      this.fetchViewAttrs(oid, session, fetched.scopeKey),
     );
 
     const elapsedMs = Date.now() - startMs;
@@ -417,6 +415,7 @@ export class LookinCliService {
   private async fetchViewAttrs(
     oid: number,
     session: AppSession,
+    scopeKey: string,
   ): Promise<{ oid: number; attrGroups: any[] }> {
     const payload = await this.encodePayload({
       $class: 'LookinConnectionAttachment',
@@ -442,7 +441,7 @@ export class LookinCliService {
       attrGroups: (response.data ?? []).map(toAttrGroup),
     };
 
-    this.cache?.setViewDetail(oid, result);
+    this.cache?.setViewDetail(scopeKey, oid, result);
     return result;
   }
 
@@ -466,8 +465,15 @@ export class LookinCliService {
       throw new LookinError('VALIDATION_INVALID_VALUE', validation.reason);
     }
 
+    const endpoint = await this.resolveEndpoint();
+    let scopeKey: string | undefined = this.getActiveScopeKey(endpoint) ?? undefined;
     if (spec.target === 'view') {
-      await this.validateModifyTarget(args.oid, spec.target, args.attribute);
+      scopeKey = await this.validateModifyTarget(
+        args.oid,
+        spec.target,
+        args.attribute,
+        endpoint,
+      );
     }
 
     try {
@@ -516,20 +522,94 @@ export class LookinCliService {
         },
       };
     } finally {
-      this.cache?.invalidateViewDetail(args.oid);
-      this.cache?.markHierarchyStale();
+      if (scopeKey) {
+        this.cache?.invalidateViewDetail(scopeKey, args.oid);
+        this.cache?.markHierarchyStale(scopeKey);
+      }
     }
   }
 
   async getAppInfo(): Promise<Record<string, unknown>> {
     const startMs = Date.now();
+    const endpoint = await this.resolveEndpoint();
+    let pingResponse: any;
+    try {
+      pingResponse = await this.withSession(
+        async ({ session }) => session.ping(5000),
+        endpoint,
+      );
+    } catch (error) {
+      const activeScopeKey = this.getActiveScopeKey(endpoint);
+      const cachedHierarchy = activeScopeKey
+        ? this.cache?.getHierarchy(activeScopeKey)
+        : null;
+      const cachedAppInfo = cachedHierarchy?.data?.appInfo;
+
+      if (!cachedAppInfo) {
+        throw error;
+      }
+
+      const elapsedMs = Date.now() - startMs;
+      return {
+        appName: cachedAppInfo.appName ?? null,
+        bundleIdentifier: cachedAppInfo.appBundleIdentifier ?? null,
+        deviceDescription: cachedAppInfo.deviceDescription ?? null,
+        osDescription: cachedAppInfo.osDescription ?? null,
+        osMainVersion: cachedAppInfo.osMainVersion ?? null,
+        deviceType: cachedAppInfo.deviceType ?? null,
+        serverVersion: cachedAppInfo.serverVersion ?? null,
+        serverReadableVersion: cachedAppInfo.serverReadableVersion ?? null,
+        screenWidth: cachedAppInfo.screenWidth ?? null,
+        screenHeight: cachedAppInfo.screenHeight ?? null,
+        screenScale: cachedAppInfo.screenScale ?? null,
+        _meta: CacheManager.buildMeta({
+          cacheHit: true,
+          source: 'cache',
+          stalePossible: cachedHierarchy.stale,
+          elapsedMs,
+        }),
+      };
+    }
+    const pingAppInfo = pingResponse?.data;
+    const hasPingAppInfo =
+      pingAppInfo &&
+      typeof pingAppInfo === 'object' &&
+      (
+        pingAppInfo.appName !== undefined ||
+        pingAppInfo.appBundleIdentifier !== undefined ||
+        pingAppInfo.deviceDescription !== undefined
+      );
+
+    if (hasPingAppInfo) {
+      const elapsedMs = Date.now() - startMs;
+      return {
+        appName: pingAppInfo.appName ?? null,
+        bundleIdentifier: pingAppInfo.appBundleIdentifier ?? null,
+        deviceDescription: pingAppInfo.deviceDescription ?? null,
+        osDescription: pingAppInfo.osDescription ?? null,
+        osMainVersion: pingAppInfo.osMainVersion ?? null,
+        deviceType: pingAppInfo.deviceType ?? null,
+        serverVersion: pingAppInfo.serverVersion ?? pingResponse?.lookinServerVersion ?? null,
+        serverReadableVersion: pingAppInfo.serverReadableVersion ?? null,
+        screenWidth: pingAppInfo.screenWidth ?? null,
+        screenHeight: pingAppInfo.screenHeight ?? null,
+        screenScale: pingAppInfo.screenScale ?? null,
+        _meta: CacheManager.buildMeta({
+          cacheHit: false,
+          source: 'live',
+          stalePossible: false,
+          elapsedMs,
+        }),
+      };
+    }
+
     const fetched = await this.fetchHierarchyInfo();
     const appInfo = fetched.hierarchyInfo.appInfo;
 
     if (!appInfo) {
       throw new LookinError(
         'PROTOCOL_UNEXPECTED_RESPONSE',
-        'No app info available in hierarchy response',
+        'No app info available in ping attachment or hierarchy response',
       );
     }
 
@@ -541,7 +621,7 @@ export class LookinCliService {
       osDescription: appInfo.osDescription ?? null,
       osMainVersion: appInfo.osMainVersion ?? null,
       deviceType: appInfo.deviceType ?? null,
-      serverVersion: appInfo.serverVersion ?? null,
+      serverVersion: appInfo.serverVersion ?? pingResponse?.lookinServerVersion ?? null,
       serverReadableVersion: appInfo.serverReadableVersion ?? null,
       screenWidth: appInfo.screenWidth ?? null,
       screenHeight: appInfo.screenHeight ?? null,
@@ -615,26 +695,34 @@ export class LookinCliService {
     return { metadata, imageBase64 };
   }
 
-  private async fetchHierarchyInfo(): Promise<HierarchyFetchResult> {
-    const cached = this.cache?.getHierarchy();
-    if (cached) {
-      return {
-        hierarchyInfo: cached.data,
-        cacheHit: true,
-        source: 'cache',
-        stalePossible: cached.stale,
-      };
+  private async fetchHierarchyInfo(endpoint?: DeviceEndpoint): Promise<HierarchyFetchResult> {
+    const resolvedEndpoint = endpoint ?? await this.resolveEndpoint();
+    const activeScopeKey = this.getActiveScopeKey(resolvedEndpoint);
+
+    if (activeScopeKey) {
+      const cached = this.cache?.getHierarchy(activeScopeKey);
+      if (cached) {
+        return {
+          hierarchyInfo: cached.data,
+          cacheHit: true,
+          source: 'cache',
+          stalePossible: cached.stale,
+          scopeKey: activeScopeKey,
+        };
+      }
     }
 
+    const hierarchyInfo = await this.fetchLiveHierarchy(resolvedEndpoint);
     return {
-      hierarchyInfo: await this.fetchLiveHierarchy(),
+      hierarchyInfo,
       cacheHit: false,
       source: 'live',
       stalePossible: false,
+      scopeKey: buildScopeKey(hierarchyInfo),
     };
   }
 
-  private async fetchLiveHierarchy(): Promise<any> {
+  private async fetchLiveHierarchy(endpoint?: DeviceEndpoint): Promise<any> {
     const response = await this.withSession(async ({ session }) => {
       const responseBuf = await session.request(
         LookinRequestType.Hierarchy,
@@ -642,7 +730,7 @@ export class LookinCliService {
         15000,
       );
       return this.decodeBuffer(responseBuf);
-    });
+    }, endpoint);
 
     const hierarchyInfo = response.data;
     if (!hierarchyInfo || hierarchyInfo.$class !== 'LookinHierarchyInfo') {
@@ -652,7 +740,10 @@ export class LookinCliService {
       );
     }
 
-    this.cache?.setHierarchy(hierarchyInfo);
+    const scopeKey = buildScopeKey(hierarchyInfo);
+    this.cache?.setHierarchy(scopeKey, hierarchyInfo);
+    const resolvedEndpoint = endpoint ?? await this.resolveEndpoint();
+    this.cache?.setActiveScopeKey(buildEndpointCacheKey(resolvedEndpoint), scopeKey);
     return hierarchyInfo;
   }
 
@@ -660,8 +751,9 @@ export class LookinCliService {
     oid: number,
     target: 'layer' | 'view',
     attribute: keyof typeof ATTR_WHITELIST,
-  ): Promise<void> {
-    const fetched = await this.fetchHierarchyInfo();
+    endpoint?: DeviceEndpoint,
+  ): Promise<string> {
+    const fetched = await this.fetchHierarchyInfo(endpoint);
     const targetInfo = findTargetOidKind(fetched.hierarchyInfo.displayItems ?? [], oid);
 
     if (!targetInfo) {
@@ -679,16 +771,23 @@ export class LookinCliService {
         `Attribute "${attribute}" expects ${expectedField}, but ${oid} matches ${actualField}.`,
       );
     }
+
+    return fetched.scopeKey;
+  }
+
+  private getActiveScopeKey(endpoint: DeviceEndpoint): string | null {
+    return getEndpointScopeKey(this.cache, endpoint);
   }
 
   private async withSession<T>(
     handler: (context: EndpointSessionContext) => Promise<T>,
+    endpoint?: DeviceEndpoint,
   ): Promise<T> {
-    const endpoint = await this.resolveEndpoint();
-    const session = new AppSession(endpoint, this.bridge);
+    const resolvedEndpoint = endpoint ?? await this.resolveEndpoint();
+    const session = new AppSession(resolvedEndpoint, this.bridge);
 
     try {
-      return await handler({ endpoint, session });
+      return await handler({ endpoint: resolvedEndpoint, session });
     } finally {
       await session.close();
     }
@@ -718,6 +817,15 @@ export class LookinCliService {
     const base64 = await this.bridge.encode(payload);
     return Buffer.from(base64, 'base64');
   }
+}
+
+function buildEndpointCacheKey(endpoint: DeviceEndpoint): string {
+  return `${endpoint.transport}:${endpoint.host}:${endpoint.port}`;
+}
+
+function getEndpointScopeKey(cache: CacheManager | undefined, endpoint: DeviceEndpoint): string | null {
+  if (!cache) return null;
+  return cache.getActiveScopeKey(buildEndpointCacheKey(endpoint));
 }
 
 function toViewNode(
@@ -949,6 +1057,24 @@ function countNodes(items: any[]): number {
     }
   }
   return count;
+}
+
+function buildScopeKey(hierarchyInfo: any): string {
+  const appInfo = hierarchyInfo?.appInfo ?? {};
+  const bundleId = appInfo.appBundleIdentifier ?? 'unknown-bundle';
+  const deviceDescription = appInfo.deviceDescription ?? 'unknown-device';
+  const rootItems: any[] = hierarchyInfo?.displayItems ?? [];
+  const fingerprint = rootItems
+    .map((item) => {
+      const viewObj = item.viewObject ?? item.layerObject ?? {};
+      const className = viewObj.classChainList?.[0] ?? 'Unknown';
+      const oid = viewObj.oid ?? 0;
+      const frame = item.frame ?? {};
+      return `${className}:${oid}:${frame.x ?? 0},${frame.y ?? 0},${frame.width ?? 0},${frame.height ?? 0}`;
+    })
+    .join('|');
+
+  return `${bundleId}::${deviceDescription}::${fingerprint}`;
 }
 
 function toAttrGroup(group: any) {

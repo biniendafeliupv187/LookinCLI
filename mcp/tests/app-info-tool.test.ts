@@ -1,74 +1,62 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import * as net from 'node:net';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { FrameEncoder } from '../src/core/transport.js';
 import { registerGetAppInfoTool } from '../src/mcp/app-info-tool.js';
 
-const fixtures = JSON.parse(
-  fs.readFileSync(
-    path.join(__dirname, 'fixtures', 'bridge-fixtures.json'),
-    'utf-8',
-  ),
-);
+const { appSessionMock } = vi.hoisted(() => ({
+  appSessionMock: vi.fn(),
+}));
 
-const HIERARCHY_RESPONSE_B64: string = fixtures.hierarchyResponse.base64;
+appSessionMock.mockImplementation(() => ({
+  ping: vi.fn().mockResolvedValue({
+    $class: 'LookinConnectionResponseAttachment',
+    lookinServerVersion: 7,
+    appIsInBackground: false,
+    data: {
+      appName: 'PingApp',
+      appBundleIdentifier: 'com.test.ping',
+      deviceDescription: 'iPhone Ping',
+      osDescription: 'iOS 18.1',
+      osMainVersion: 18,
+      deviceType: 1,
+      serverVersion: 7,
+      serverReadableVersion: '7.0',
+      screenWidth: 390,
+      screenHeight: 844,
+      screenScale: 3,
+    },
+  }),
+  request: vi.fn().mockResolvedValue(Buffer.alloc(0)),
+  close: vi.fn(),
+}));
 
-/**
- * Mock server that responds to Type 202 (Hierarchy) with hierarchy fixture.
- * get_app_info reuses the hierarchy request to extract appInfo.
- */
-function createMockHierarchyServer(): Promise<{
-  server: net.Server;
-  port: number;
-}> {
-  return new Promise((resolve) => {
-    const server = net.createServer((socket) => {
-      let buffer = Buffer.alloc(0);
-      socket.on('data', (data) => {
-        buffer = Buffer.concat([buffer, data]);
-        while (buffer.byteLength >= 16) {
-          const type = buffer.readUInt32BE(4);
-          const tag = buffer.readUInt32BE(8);
-          const payloadSize = buffer.readUInt32BE(12);
-          const totalSize = 16 + payloadSize;
-          if (buffer.byteLength < totalSize) break;
-          buffer = buffer.subarray(totalSize);
-
-          const payloadBuf = Buffer.from(HIERARCHY_RESPONSE_B64, 'base64');
-          socket.write(FrameEncoder.encode(type, tag, payloadBuf));
-        }
-      });
-    });
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address() as net.AddressInfo;
-      resolve({ server, port: addr.port });
-    });
-  });
-}
+vi.mock('../src/core/app-session.js', () => ({
+  LookinRequestType: {
+    Ping: 200,
+    Hierarchy: 202,
+  },
+  AppSession: appSessionMock,
+}));
 
 describe('get_app_info MCP tool', () => {
-  let mockServer: net.Server | null = null;
   let client: Client | null = null;
   let mcpServer: McpServer | null = null;
 
   afterEach(async () => {
+    appSessionMock.mockClear();
     if (client) { await client.close(); client = null; }
     if (mcpServer) { await mcpServer.close(); mcpServer = null; }
-    if (mockServer) { mockServer.close(); mockServer = null; }
   });
 
-  async function setupMcpPair(mockPort: number) {
+  async function setupMcpPair() {
     mcpServer = new McpServer(
       { name: 'lookin-mcp', version: '0.1.1' },
       { capabilities: { tools: {} } },
     );
     registerGetAppInfoTool(mcpServer, {
       host: '127.0.0.1',
-      port: mockPort,
+      port: 47164,
       transport: 'simulator' as const,
     });
     client = new Client({ name: 'test-client', version: '0.1.1' });
@@ -76,12 +64,8 @@ describe('get_app_info MCP tool', () => {
     await Promise.all([mcpServer.connect(st), client.connect(ct)]);
   }
 
-  // --- Task 9.1: returns bundle identifier, display name, device name, OS version ---
-
   it('get_app_info tool is listed with correct name', async () => {
-    const { server, port } = await createMockHierarchyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    await setupMcpPair();
 
     const { tools } = await client!.listTools();
     const tool = tools.find((t) => t.name === 'get_app_info');
@@ -89,100 +73,43 @@ describe('get_app_info MCP tool', () => {
     expect(tool!.description).toContain('app');
   });
 
-  it('returns appName from hierarchy response', async () => {
-    const { server, port } = await createMockHierarchyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+  it('prefers ping attachment metadata over hierarchy-derived app info', async () => {
+    await setupMcpPair();
 
     const result = await client!.callTool({ name: 'get_app_info' });
     expect(result.isError).toBeFalsy();
 
-    const text = (result.content as any)[0].text as string;
-    const data = JSON.parse(text);
-    expect(data.appName).toBe('TestApp');
+    const data = JSON.parse((result.content as any)[0].text);
+    expect(data.appName).toBe('PingApp');
+    expect(data.bundleIdentifier).toBe('com.test.ping');
+    expect(data.deviceDescription).toBe('iPhone Ping');
+    expect(data.osDescription).toBe('iOS 18.1');
+    expect(data.screenWidth).toBe(390);
+    expect(data.screenHeight).toBe(844);
+    expect(data.screenScale).toBe(3);
   });
 
-  it('returns bundleIdentifier from hierarchy response', async () => {
-    const { server, port } = await createMockHierarchyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+  it('returns structured error when ping fails', async () => {
+    appSessionMock.mockImplementationOnce(() => ({
+      ping: vi.fn().mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:19997')),
+      request: vi.fn(),
+      close: vi.fn(),
+    }));
+
+    await setupMcpPair();
 
     const result = await client!.callTool({ name: 'get_app_info' });
     const data = JSON.parse((result.content as any)[0].text);
-    expect(data.bundleIdentifier).toBe('com.test.app');
-  });
-
-  it('returns deviceDescription from hierarchy response', async () => {
-    const { server, port } = await createMockHierarchyServer();
-    mockServer = server;
-    await setupMcpPair(port);
-
-    const result = await client!.callTool({ name: 'get_app_info' });
-    const data = JSON.parse((result.content as any)[0].text);
-    expect(data.deviceDescription).toBe('iPhone 15 Pro');
-  });
-
-  it('returns osDescription from hierarchy response', async () => {
-    const { server, port } = await createMockHierarchyServer();
-    mockServer = server;
-    await setupMcpPair(port);
-
-    const result = await client!.callTool({ name: 'get_app_info' });
-    const data = JSON.parse((result.content as any)[0].text);
-    expect(data.osDescription).toBe('iOS 18.0');
-  });
-
-  it('returns all expected fields in a complete response', async () => {
-    const { server, port } = await createMockHierarchyServer();
-    mockServer = server;
-    await setupMcpPair(port);
-
-    const result = await client!.callTool({ name: 'get_app_info' });
-    const data = JSON.parse((result.content as any)[0].text);
-
-    // Core fields
-    expect(data.appName).toBe('TestApp');
-    expect(data.bundleIdentifier).toBe('com.test.app');
-    expect(data.deviceDescription).toBe('iPhone 15 Pro');
-    expect(data.osDescription).toBe('iOS 18.0');
-
-    // Extended fields
-    expect(data.osMainVersion).toBe(18);
-    expect(data.serverVersion).toBe(7);
-    expect(typeof data.deviceType).toBe('number');
-  });
-
-  // --- Task 9.3: structured error when no app is connected ---
-
-  it('returns structured error when server is unreachable', async () => {
-    mcpServer = new McpServer(
-      { name: 'lookin-mcp', version: '0.1.1' },
-      { capabilities: { tools: {} } },
-    );
-    registerGetAppInfoTool(mcpServer, {
-      host: '127.0.0.1',
-      port: 19997,
-      transport: 'simulator' as const,
-    });
-    client = new Client({ name: 'test-client', version: '0.1.1' });
-    const [ct, st] = InMemoryTransport.createLinkedPair();
-    await Promise.all([mcpServer.connect(st), client.connect(ct)]);
-
-    const result = await client!.callTool({ name: 'get_app_info' });
-    const text = (result.content as any)[0].text;
-    const data = JSON.parse(text);
     expect(data.error).toBeDefined();
+    expect(data.code).toBe('TRANSPORT_REFUSED');
   });
 
   it('has no required parameters', async () => {
-    const { server, port } = await createMockHierarchyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    await setupMcpPair();
 
     const { tools } = await client!.listTools();
     const tool = tools.find((t) => t.name === 'get_app_info');
     const schema = tool!.inputSchema as any;
-    // Should have no required params or empty required
     expect(schema.required ?? []).toEqual([]);
   });
 });

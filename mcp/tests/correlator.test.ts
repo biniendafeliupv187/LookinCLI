@@ -109,4 +109,25 @@ describe('RequestCorrelator', () => {
     correlator.resolve(200, 1, Buffer.alloc(0));
     expect(correlator.pendingCount).toBe(1);
   });
+
+  it('aggregates streamed responses until current count reaches total count', async () => {
+    const correlator = new RequestCorrelator();
+
+    const promise = correlator.register(210, 7, 5000);
+
+    correlator.resolvePartial(210, 7, Buffer.from('part-1'), 1, 3);
+    correlator.resolvePartial(210, 7, Buffer.from('part-2'), 2, 3);
+
+    let settled = false;
+    promise.then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+
+    correlator.resolvePartial(210, 7, Buffer.from('part-3'), 3, 3);
+
+    const result = await promise;
+    expect(result.toString()).toBe('part-1part-2part-3');
+  });
 });

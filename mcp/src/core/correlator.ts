@@ -7,6 +7,8 @@ export class RequestCorrelator {
     resolve: (data: Buffer) => void;
     reject: (err: Error) => void;
     timer: ReturnType<typeof setTimeout>;
+    chunks?: Buffer[];
+    expectedCount?: number;
   }>();
   private tagCounter = 0;
 
@@ -44,6 +46,36 @@ export class RequestCorrelator {
     clearTimeout(entry.timer);
     this.pending.delete(key);
     entry.resolve(data);
+  }
+
+  /**
+   * Resolve one partial chunk for a streamed response.
+   * The request completes only when `currentCount >= totalCount`.
+   */
+  resolvePartial(
+    type: number,
+    tag: number,
+    data: Buffer,
+    currentCount: number,
+    totalCount: number,
+  ): void {
+    const key = `${type}:${tag}`;
+    const entry = this.pending.get(key);
+    if (!entry) return;
+
+    if (!entry.chunks) {
+      entry.chunks = [];
+    }
+    entry.chunks.push(data);
+    entry.expectedCount = totalCount;
+
+    if (currentCount < totalCount) {
+      return;
+    }
+
+    clearTimeout(entry.timer);
+    this.pending.delete(key);
+    entry.resolve(Buffer.concat(entry.chunks));
   }
 
   /** Reject a specific pending request */

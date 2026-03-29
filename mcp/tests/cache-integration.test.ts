@@ -30,6 +30,24 @@ vi.mock('../src/core/app-session.js', () => ({
     AllAttrGroups: 210,
   },
   AppSession: vi.fn().mockImplementation(() => ({
+    ping: vi.fn().mockResolvedValue({
+      $class: 'LookinConnectionResponseAttachment',
+      lookinServerVersion: 7,
+      appIsInBackground: false,
+      data: {
+        appName: 'TestApp',
+        appBundleIdentifier: 'com.test.app',
+        deviceDescription: 'iPhone 15 Pro',
+        osDescription: 'iOS 18.0',
+        osMainVersion: 18,
+        deviceType: 1,
+        serverVersion: 7,
+        serverReadableVersion: '7.0',
+        screenWidth: 390,
+        screenHeight: 844,
+        screenScale: 3,
+      },
+    }),
     request: vi.fn().mockImplementation((type: number) => {
       if (type === 202) {
         return Promise.resolve(
@@ -170,7 +188,8 @@ describe('Cache integration', () => {
     const { client } = await createClientServer(cache);
     // Populate cache
     await client.callTool({ name: 'get_hierarchy', arguments: { format: 'json' } });
-    expect(cache.getHierarchy()).not.toBeNull();
+    const scopeKey = cache.getScopeKeys()[0]!;
+    expect(cache.getHierarchy(scopeKey)).not.toBeNull();
     // Reload clears and re-caches
     await client.callTool({ name: 'reload', arguments: {} });
     // The cache is populated again with fresh data by reload itself
@@ -189,20 +208,44 @@ describe('Cache integration', () => {
     const { client } = await createClientServer(cache);
     // Populate caches
     await client.callTool({ name: 'get_hierarchy', arguments: { format: 'json' } });
-    cache.setViewDetail(123, { oid: 123 });
-    expect(cache.getViewDetail(123)).not.toBeNull();
+    const scopeKey = cache.getScopeKeys()[0]!;
+    cache.setViewDetail(scopeKey, 123, { oid: 123 });
+    expect(cache.getViewDetail(scopeKey, 123)).not.toBeNull();
     // Modify
     await client.callTool({
       name: 'modify_view',
       arguments: { oid: 123, attribute: 'hidden', value: true },
     });
     // View detail for that oid should be invalidated
-    expect(cache.getViewDetail(123)).toBeNull();
+    expect(cache.getViewDetail(scopeKey, 123)).toBeNull();
     // Hierarchy should be marked stale
-    const h = cache.getHierarchy();
+    const h = cache.getHierarchy(scopeKey);
     expect(h).not.toBeNull();
     expect(h!.stale).toBe(true);
     await client.close();
+  });
+
+  it('reload clears only the current scope cache', async () => {
+    cache.setHierarchy('scope-a', {
+      $class: 'LookinHierarchyInfo',
+      appInfo: { appName: 'AppA', appBundleIdentifier: 'com.test.a', deviceDescription: 'iPhone A' },
+      displayItems: [{ oid: 1 }],
+    });
+    cache.setViewDetail('scope-a', 123, { oid: 123 });
+
+    cache.setHierarchy('scope-b', {
+      $class: 'LookinHierarchyInfo',
+      appInfo: { appName: 'AppB', appBundleIdentifier: 'com.test.b', deviceDescription: 'iPhone B' },
+      displayItems: [{ oid: 2 }],
+    });
+    cache.setViewDetail('scope-b', 456, { oid: 456 });
+
+    cache.clear('scope-a');
+
+    expect(cache.getHierarchy('scope-a')).toBeNull();
+    expect(cache.getViewDetail('scope-a', 123)).toBeNull();
+    expect(cache.getHierarchy('scope-b')).not.toBeNull();
+    expect(cache.getViewDetail('scope-b', 456)).not.toBeNull();
   });
 
   // ─── 10.5/10.6: slow operation hint in meta ───

@@ -1,12 +1,9 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import * as net from 'node:net';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { FrameEncoder } from '../src/core/transport.js';
-
 import { CacheManager } from '../src/core/cache.js';
 import { registerStatusTool } from '../src/mcp/status-tool.js';
 import { registerHierarchyTool } from '../src/mcp/hierarchy-tool.js';
@@ -23,62 +20,82 @@ const fixtures = JSON.parse(
   ),
 );
 
-function getFixtureForType(type: number): string {
-  switch (type) {
-    case 200: // Ping
-      return fixtures.connectionResponse.base64;
-    case 202: // Hierarchy
-      return fixtures.hierarchyResponse.base64;
-    case 210: // AllAttrGroups
-      return fixtures.attrGroupsResponse.base64;
-    case 203: // HierarchyDetails (Screenshot)
-      return fixtures.screenshotResponse.base64;
-    case 204: // InbuiltAttrModification
-      return fixtures.modifyResponse.base64;
-    default:
-      return fixtures.connectionResponse.base64;
-  }
-}
+vi.mock('../src/core/app-session.js', () => ({
+  LookinRequestType: {
+    Ping: 200,
+    App: 201,
+    Hierarchy: 202,
+    HierarchyDetails: 203,
+    InbuiltAttrModification: 204,
+    AllAttrGroups: 210,
+  },
+  AppSession: vi.fn().mockImplementation(() => ({
+    ping: vi.fn().mockResolvedValue(fixtures.connectionResponse.expected),
+    request: vi.fn().mockImplementation((type: number) => {
+      if (type === 202) {
+        return Promise.resolve(Buffer.from(fixtures.hierarchyResponse.base64, 'base64'));
+      }
+      if (type === 210) {
+        return Promise.resolve(Buffer.from(fixtures.attrGroupsResponse.base64, 'base64'));
+      }
+      if (type === 203) {
+        return Promise.resolve(Buffer.from(fixtures.screenshotResponse.base64, 'base64'));
+      }
+      if (type === 204) {
+        return Promise.resolve(Buffer.from(fixtures.modifyResponse.base64, 'base64'));
+      }
+      return Promise.reject(new Error(`Unknown request type: ${type}`));
+    }),
+    close: vi.fn(),
+  })),
+}));
 
-function createMockE2EServer(): Promise<{ server: net.Server; port: number }> {
-  return new Promise((resolve) => {
-    const server = net.createServer((socket) => {
-      let buffer = Buffer.alloc(0);
-      socket.on('data', (data) => {
-        buffer = Buffer.concat([buffer, data]);
-        while (buffer.byteLength >= 16) {
-          const type = buffer.readUInt32BE(4);
-          const tag = buffer.readUInt32BE(8);
-          const payloadSize = buffer.readUInt32BE(12);
-          const totalSize = 16 + payloadSize;
-          if (buffer.byteLength < totalSize) break;
-          buffer = buffer.subarray(totalSize);
-
-          const b64 = getFixtureForType(type);
-          const payloadBuf = Buffer.from(b64, 'base64');
-          socket.write(FrameEncoder.encode(type, tag, payloadBuf));
-        }
-      });
-    });
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address() as net.AddressInfo;
-      resolve({ server, port: addr.port });
-    });
-  });
-}
+vi.mock('../src/core/bridge-client.js', () => ({
+  BridgeClient: vi.fn().mockImplementation(() => ({
+    decode: vi.fn().mockImplementation(async (base64: string) => {
+      if (base64 === fixtures.hierarchyResponse.base64) {
+        return fixtures.hierarchyResponse.expected;
+      }
+      if (base64 === fixtures.attrGroupsResponse.base64) {
+        return fixtures.attrGroupsResponse.expected;
+      }
+      if (base64 === fixtures.screenshotResponse.base64) {
+        return {
+          $class: 'LookinConnectionResponseAttachment',
+          data: [
+            {
+              $class: 'LookinDisplayItemDetail',
+              displayItemOid: 42,
+              groupScreenshot: 'ZmFrZS1wbmc=',
+            },
+          ],
+          lookinServerVersion: 7,
+        };
+      }
+      if (base64 === fixtures.modifyResponse.base64) {
+        return fixtures.modifyResponse.expected;
+      }
+      if (base64 === fixtures.connectionResponse.base64) {
+        return fixtures.connectionResponse.expected;
+      }
+      throw new Error(`unexpected bridge decode payload: ${base64.slice(0, 16)}`);
+    }),
+    encode: vi.fn().mockImplementation(async (json: unknown) =>
+      Buffer.from(JSON.stringify(json)).toString('base64'),
+    ),
+  })),
+}));
 
 describe('E2E Integration', () => {
-  let mockServer: net.Server | null = null;
   let client: Client | null = null;
   let mcpServer: McpServer | null = null;
 
   afterEach(async () => {
     if (client) { await client.close(); client = null; }
     if (mcpServer) { await mcpServer.close(); mcpServer = null; }
-    if (mockServer) { mockServer.close(); mockServer = null; }
   });
 
-  async function setupE2EMcpPair(mockPort: number) {
+  async function setupE2EMcpPair() {
     mcpServer = new McpServer(
       { name: 'lookin-mcp', version: '0.1.1' },
       { capabilities: { tools: {} } },
@@ -87,7 +104,7 @@ describe('E2E Integration', () => {
 
     const mockEndpoint = {
       host: '127.0.0.1',
-      port: mockPort,
+      port: 47164,
       transport: 'simulator' as const,
     };
 
@@ -104,51 +121,42 @@ describe('E2E Integration', () => {
     await Promise.all([mcpServer.connect(st), client.connect(ct)]);
   }
 
-  it('runs full e2e tool flow against mock server', async () => {
-    const { server, port } = await createMockE2EServer();
-    mockServer = server;
-    await setupE2EMcpPair(port);
+  it('runs full e2e tool flow against mocked app session', async () => {
+    await setupE2EMcpPair();
 
-    // 1. status
     let res = await client!.callTool({ name: 'status' });
     expect(res.isError).toBeFalsy();
     let data = JSON.parse((res.content as any)[0].text);
     expect(data.connected).toBe(true);
     expect(data.serverVersion).toBe(7);
 
-    // 2. get_hierarchy
     res = await client!.callTool({ name: 'get_hierarchy', arguments: { format: 'json' } });
     expect(res.isError).toBeFalsy();
     data = JSON.parse((res.content as any)[0].text);
     expect(data.viewHierarchy.length).toBeGreaterThan(0);
     const rootOid = data.viewHierarchy[0].oid;
 
-    // 3. search
     res = await client!.callTool({ name: 'search', arguments: { query: 'UIView' } });
     expect(res.isError).toBeFalsy();
     data = JSON.parse((res.content as any)[0].text);
     expect(data.results).toBeDefined();
 
-    // 4. get_view
     res = await client!.callTool({ name: 'get_view', arguments: { oid: rootOid } });
     expect(res.isError).toBeFalsy();
     data = JSON.parse((res.content as any)[0].text);
     expect(data.attrGroups).toBeDefined();
 
-    // 5. get_screenshot
     res = await client!.callTool({ name: 'get_screenshot', arguments: { oid: rootOid } });
     expect(res.isError).toBeFalsy();
     const content = res.content as any[];
     const imgContent = content.find((c) => c.type === 'image' && c.mimeType === 'image/png');
     expect(imgContent).toBeDefined();
 
-    // 6. modify_view
     res = await client!.callTool({ name: 'modify_view', arguments: { oid: rootOid, attribute: 'hidden', value: true } });
     expect(res.isError).toBeFalsy();
     data = JSON.parse((res.content as any)[0].text);
     expect(data.updatedDetail).toBeDefined();
 
-    // 7. reload
     res = await client!.callTool({ name: 'reload', arguments: {} });
     expect(res.isError).toBeFalsy();
     data = JSON.parse((res.content as any)[0].text);

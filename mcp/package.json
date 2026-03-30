@@ -2,7 +2,7 @@
   "name": "@biniendafeliupv/lookin-cli",
   "version": "0.1.7",
   "description": "CLI and MCP server for Lookin-based iOS UI inspection",
-  "homepage": "https://github.com/biniendafeliupv187/LookinCLI/tree/dev/mcp",
+  "homepage": "https://github.com/biniendafeliupv187/LookinCLI/tree/master/mcp",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/biniendafeliupv187/LookinCLI.git",

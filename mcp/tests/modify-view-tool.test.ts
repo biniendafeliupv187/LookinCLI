@@ -1,11 +1,9 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import * as net from 'node:net';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { FrameEncoder } from '../src/core/transport.js';
 import { registerModifyViewTool, ATTR_WHITELIST } from '../src/mcp/modify-view-tool.js';
 
 const fixtures = JSON.parse(
@@ -16,65 +14,63 @@ const fixtures = JSON.parse(
 );
 
 const MODIFY_RESPONSE_B64: string = fixtures.modifyResponse.base64;
-const HIERARCHY_RESPONSE_B64: string = fixtures.hierarchyResponse.base64;
 
-/**
- * Mock server that responds to hierarchy lookups for text target validation
- * and Type 204 modify requests with fixture payloads.
- */
-function createMockModifyServer(): Promise<{
-  server: net.Server;
-  port: number;
-  getLastPayload: () => Buffer | null;
-}> {
-  return new Promise((resolve) => {
-    let lastPayload: Buffer | null = null;
-    const server = net.createServer((socket) => {
-      let buffer = Buffer.alloc(0);
-      socket.on('data', (data) => {
-        buffer = Buffer.concat([buffer, data]);
-        while (buffer.byteLength >= 16) {
-          const type = buffer.readUInt32BE(4);
-          const tag = buffer.readUInt32BE(8);
-          const payloadSize = buffer.readUInt32BE(12);
-          const totalSize = 16 + payloadSize;
-          if (buffer.byteLength < totalSize) break;
-          lastPayload = buffer.subarray(16, totalSize);
-          buffer = buffer.subarray(totalSize);
+const {
+  appSessionMock,
+  requestMock,
+  closeMock,
+  bridgeEncodeMock,
+  bridgeDecodeMock,
+} = vi.hoisted(() => ({
+  appSessionMock: vi.fn(),
+  requestMock: vi.fn(),
+  closeMock: vi.fn(),
+  bridgeEncodeMock: vi.fn(),
+  bridgeDecodeMock: vi.fn(),
+}));
 
-          const responseB64 =
-            type === 202 ? HIERARCHY_RESPONSE_B64 : MODIFY_RESPONSE_B64;
-          const payloadBuf = Buffer.from(responseB64, 'base64');
-          socket.write(FrameEncoder.encode(type, tag, payloadBuf));
-        }
-      });
-    });
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address() as net.AddressInfo;
-      resolve({ server, port: addr.port, getLastPayload: () => lastPayload });
-    });
-  });
-}
+appSessionMock.mockImplementation(() => ({
+  request: requestMock,
+  close: closeMock,
+}));
+
+vi.mock('../src/core/app-session.js', () => ({
+  LookinRequestType: {
+    Hierarchy: 202,
+    InbuiltAttrModification: 204,
+  },
+  AppSession: appSessionMock,
+}));
+
+vi.mock('../src/core/bridge-client.js', () => ({
+  BridgeClient: vi.fn().mockImplementation(() => ({
+    encode: bridgeEncodeMock,
+    decode: bridgeDecodeMock,
+  })),
+}));
 
 describe('modify_view MCP tool', () => {
-  let mockServer: net.Server | null = null;
   let client: Client | null = null;
   let mcpServer: McpServer | null = null;
 
   afterEach(async () => {
+    requestMock.mockReset();
+    closeMock.mockReset();
+    appSessionMock.mockClear();
+    bridgeEncodeMock.mockReset();
+    bridgeDecodeMock.mockReset();
     if (client) { await client.close(); client = null; }
     if (mcpServer) { await mcpServer.close(); mcpServer = null; }
-    if (mockServer) { mockServer.close(); mockServer = null; }
   });
 
-  async function setupMcpPair(mockPort: number) {
+  async function setupMcpPair() {
     mcpServer = new McpServer(
       { name: 'lookin-mcp', version: '0.1.1' },
       { capabilities: { tools: {} } },
     );
     registerModifyViewTool(mcpServer, {
       host: '127.0.0.1',
-      port: mockPort,
+      port: 47164,
       transport: 'simulator' as const,
     });
     client = new Client({ name: 'test-client', version: '0.1.1' });
@@ -82,12 +78,51 @@ describe('modify_view MCP tool', () => {
     await Promise.all([mcpServer.connect(st), client.connect(ct)]);
   }
 
-  // --- Task 8.1: Correct Type 204 payload for supported attributes ---
+  function mockHierarchyAndModify() {
+    bridgeEncodeMock.mockResolvedValue(Buffer.from('encoded-request').toString('base64'));
+    bridgeDecodeMock.mockImplementation(async (base64: string) => {
+      if (base64 === Buffer.from('hierarchy-response').toString('base64')) {
+        return {
+          $class: 'LookinConnectionResponseAttachment',
+          data: {
+            $class: 'LookinHierarchyInfo',
+            displayItems: [
+              {
+                $class: 'LookinDisplayItem',
+                layerObject: {
+                  $class: 'LookinObject',
+                  classChainList: ['CALayer'],
+                  oid: 414,
+                },
+                viewObject: {
+                  $class: 'LookinObject',
+                  classChainList: ['UILabel'],
+                  oid: 42,
+                },
+              },
+            ],
+          },
+        };
+      }
+      if (base64 === Buffer.from(MODIFY_RESPONSE_B64, 'base64').toString('base64')) {
+        return fixtures.modifyResponse.expected;
+      }
+      throw new Error(`Unexpected decode payload: ${base64}`);
+    });
+    requestMock.mockImplementation(async (type: number) => {
+      if (type === 202) {
+        return Buffer.from('hierarchy-response');
+      }
+      if (type === 204) {
+        return Buffer.from(MODIFY_RESPONSE_B64, 'base64');
+      }
+      throw new Error(`Unexpected request type ${type}`);
+    });
+  }
 
   it('modify_view tool is listed with correct parameters', async () => {
-    const { server, port } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
     const { tools } = await client!.listTools();
     const tool = tools.find((t) => t.name === 'modify_view');
@@ -102,34 +137,32 @@ describe('modify_view MCP tool', () => {
   });
 
   it('modify hidden (BOOL) returns updated state', async () => {
-    const { server, port } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
     const result = await client!.callTool({
       name: 'modify_view',
-      arguments: { oid: 42, attribute: 'hidden', value: true },
+      arguments: { oid: 414, attribute: 'hidden', value: true },
     });
     expect(result.isError).toBeFalsy();
 
     const text = (result.content as any)[0].text as string;
     const data = JSON.parse(text);
-    expect(data.oid).toBe(42);
+    expect(data.oid).toBe(414);
     expect(data.attribute).toBe('hidden');
     expect(data.value).toBe(true);
     expect(data.updatedDetail).toBeDefined();
-    expect(data.updatedDetail.hiddenValue).toBe(false); // fixture value
+    expect(data.updatedDetail.hiddenValue).toBe(false);
     expect(data.updatedDetail.alphaValue).toBe(1);
   });
 
   it('modify alpha (Float) returns updated state', async () => {
-    const { server, port } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
     const result = await client!.callTool({
       name: 'modify_view',
-      arguments: { oid: 42, attribute: 'alpha', value: 0.5 },
+      arguments: { oid: 414, attribute: 'alpha', value: 0.5 },
     });
     expect(result.isError).toBeFalsy();
 
@@ -141,13 +174,12 @@ describe('modify_view MCP tool', () => {
   });
 
   it('modify frame (CGRect) returns updated state', async () => {
-    const { server, port } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
     const result = await client!.callTool({
       name: 'modify_view',
-      arguments: { oid: 42, attribute: 'frame', value: [10, 20, 200, 100] },
+      arguments: { oid: 414, attribute: 'frame', value: [10, 20, 200, 100] },
     });
     expect(result.isError).toBeFalsy();
 
@@ -160,13 +192,12 @@ describe('modify_view MCP tool', () => {
   });
 
   it('modify backgroundColor (UIColor RGBA) returns updated state', async () => {
-    const { server, port } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
     const result = await client!.callTool({
       name: 'modify_view',
-      arguments: { oid: 42, attribute: 'backgroundColor', value: [1, 0, 0, 1] },
+      arguments: { oid: 414, attribute: 'backgroundColor', value: [1, 0, 0, 1] },
     });
     expect(result.isError).toBeFalsy();
 
@@ -178,68 +209,61 @@ describe('modify_view MCP tool', () => {
   });
 
   it('modify text (NSString) returns updated state', async () => {
-    const { server, port } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
     const result = await client!.callTool({
       name: 'modify_view',
-      arguments: { oid: 2, attribute: 'text', value: 'Hello World' },
+      arguments: { oid: 42, attribute: 'text', value: 'Hello World' },
     });
     expect(result.isError).toBeFalsy();
 
     const text = (result.content as any)[0].text as string;
     const data = JSON.parse(text);
-    expect(data.oid).toBe(2);
+    expect(data.oid).toBe(42);
     expect(data.attribute).toBe('text');
     expect(data.value).toBe('Hello World');
     expect(data.updatedDetail).toBeDefined();
   });
 
   it('modify_view sends payload to the mock server', async () => {
-    const { server, port, getLastPayload } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
     await client!.callTool({
       name: 'modify_view',
-      arguments: { oid: 42, attribute: 'hidden', value: false },
+      arguments: { oid: 414, attribute: 'hidden', value: false },
     });
 
-    const payload = getLastPayload();
-    expect(payload).not.toBeNull();
-    expect(payload!.byteLength).toBeGreaterThan(0);
+    expect(requestMock).toHaveBeenCalledTimes(2);
+    expect(requestMock.mock.calls[0][0]).toBe(202);
+    expect(requestMock.mock.calls[1][0]).toBe(204);
+    expect(requestMock.mock.calls[1][1]).toBeInstanceOf(Buffer);
+    expect((requestMock.mock.calls[1][1] as Buffer).byteLength).toBeGreaterThan(0);
   });
 
-  // --- Task 8.2: Reject unsupported property with validation error ---
-
   it('rejects unsupported attribute with validation error', async () => {
-    const { server, port } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
-    // z.enum should reject unknown attributes at schema level
-    // But even if it gets through, the handler validates
     try {
       const result = await client!.callTool({
         name: 'modify_view',
         arguments: { oid: 42, attribute: 'unsupported' as any, value: true },
       });
-      // If the schema validation lets it through, check for error
       if (!result.isError) {
         const text = (result.content as any)[0].text as string;
         const data = JSON.parse(text);
         expect(data.error).toBeDefined();
       }
     } catch {
-      // Schema validation may throw — that's also acceptable
+      // schema validation may throw before handler runs
     }
   });
 
   it('rejects hidden with non-boolean value', async () => {
-    const { server, port } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
     const result = await client!.callTool({
       name: 'modify_view',
@@ -252,9 +276,8 @@ describe('modify_view MCP tool', () => {
   });
 
   it('rejects alpha with non-number value', async () => {
-    const { server, port } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
     const result = await client!.callTool({
       name: 'modify_view',
@@ -267,9 +290,8 @@ describe('modify_view MCP tool', () => {
   });
 
   it('rejects frame with wrong array length', async () => {
-    const { server, port } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
     const result = await client!.callTool({
       name: 'modify_view',
@@ -282,9 +304,8 @@ describe('modify_view MCP tool', () => {
   });
 
   it('rejects backgroundColor with wrong array length', async () => {
-    const { server, port } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
     const result = await client!.callTool({
       name: 'modify_view',
@@ -297,9 +318,8 @@ describe('modify_view MCP tool', () => {
   });
 
   it('rejects text with non-string value', async () => {
-    const { server, port } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
     const result = await client!.callTool({
       name: 'modify_view',
@@ -311,21 +331,9 @@ describe('modify_view MCP tool', () => {
     expect(data.error).toContain('string');
   });
 
-  // --- Error handling ---
-
   it('reports error when server is unreachable', async () => {
-    mcpServer = new McpServer(
-      { name: 'lookin-mcp', version: '0.1.1' },
-      { capabilities: { tools: {} } },
-    );
-    registerModifyViewTool(mcpServer, {
-      host: '127.0.0.1',
-      port: 19997,
-      transport: 'simulator' as const,
-    });
-    client = new Client({ name: 'test-client', version: '0.1.1' });
-    const [ct, st] = InMemoryTransport.createLinkedPair();
-    await Promise.all([mcpServer.connect(st), client.connect(ct)]);
+    requestMock.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:19997'));
+    await setupMcpPair();
 
     const result = await client!.callTool({
       name: 'modify_view',
@@ -336,16 +344,13 @@ describe('modify_view MCP tool', () => {
     expect(data.error).toBeDefined();
   });
 
-  // --- Task 8.1: Response includes attribute groups ---
-
   it('response includes attribute groups from updated detail', async () => {
-    const { server, port } = await createMockModifyServer();
-    mockServer = server;
-    await setupMcpPair(port);
+    mockHierarchyAndModify();
+    await setupMcpPair();
 
     const result = await client!.callTool({
       name: 'modify_view',
-      arguments: { oid: 42, attribute: 'hidden', value: false },
+      arguments: { oid: 414, attribute: 'hidden', value: false },
     });
 
     const text = (result.content as any)[0].text as string;
@@ -354,7 +359,6 @@ describe('modify_view MCP tool', () => {
     expect(groups).toBeDefined();
     expect(groups.length).toBeGreaterThan(0);
 
-    // First group has UIView identifier
     const group = groups[0];
     expect(group.identifier).toBe('UIView');
     expect(group.sections).toBeDefined();

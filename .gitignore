@@ -1,1 +1,5 @@
 mcp/.npmrc
+.claude/
+skill/lookin-mcp-router-workspace/
+.env
+.env.*

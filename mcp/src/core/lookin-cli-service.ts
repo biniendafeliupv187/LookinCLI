@@ -376,8 +376,12 @@ export class LookinCliService {
 
   async getView(oid: number): Promise<Record<string, unknown>> {
     const startMs = Date.now();
-    const fetched = await this.fetchHierarchyInfo();
-    const cachedView = this.cache?.getViewDetail(fetched.scopeKey, oid);
+    const endpoint = await this.resolveEndpoint();
+    const activeScopeKey = this.getActiveScopeKey(endpoint);
+    const scopeKey = activeScopeKey ?? 'global';
+    const cachedView = activeScopeKey
+      ? this.cache?.getViewDetail(activeScopeKey, oid)
+      : this.cache?.getViewDetail(oid);
 
     if (cachedView) {
       const elapsedMs = Date.now() - startMs;
@@ -392,8 +396,9 @@ export class LookinCliService {
       };
     }
 
-    const result = await this.withSession(async ({ session }) =>
-      this.fetchViewAttrs(oid, session, fetched.scopeKey),
+    const result = await this.withSession(
+      async ({ session }) => this.fetchViewAttrs(oid, session, scopeKey),
+      endpoint,
     );
 
     const elapsedMs = Date.now() - startMs;

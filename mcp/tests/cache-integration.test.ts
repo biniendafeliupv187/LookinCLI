@@ -209,15 +209,15 @@ describe('Cache integration', () => {
     // Populate caches
     await client.callTool({ name: 'get_hierarchy', arguments: { format: 'json' } });
     const scopeKey = cache.getScopeKeys()[0]!;
-    cache.setViewDetail(scopeKey, 123, { oid: 123 });
-    expect(cache.getViewDetail(scopeKey, 123)).not.toBeNull();
+    cache.setViewDetail(scopeKey, 2, { oid: 2 });
+    expect(cache.getViewDetail(scopeKey, 2)).not.toBeNull();
     // Modify
     await client.callTool({
       name: 'modify_view',
-      arguments: { oid: 123, attribute: 'hidden', value: true },
+      arguments: { oid: 2, attribute: 'text', value: 'updated text' },
     });
     // View detail for that oid should be invalidated
-    expect(cache.getViewDetail(scopeKey, 123)).toBeNull();
+    expect(cache.getViewDetail(scopeKey, 2)).toBeNull();
     // Hierarchy should be marked stale
     const h = cache.getHierarchy(scopeKey);
     expect(h).not.toBeNull();

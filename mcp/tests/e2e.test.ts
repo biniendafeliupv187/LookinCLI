@@ -152,7 +152,7 @@ describe('E2E Integration', () => {
     const imgContent = content.find((c) => c.type === 'image' && c.mimeType === 'image/png');
     expect(imgContent).toBeDefined();
 
-    res = await client!.callTool({ name: 'modify_view', arguments: { oid: rootOid, attribute: 'hidden', value: true } });
+    res = await client!.callTool({ name: 'modify_view', arguments: { oid: 2, attribute: 'text', value: 'Hello World' } });
     expect(res.isError).toBeFalsy();
     data = JSON.parse((res.content as any)[0].text);
     expect(data.updatedDetail).toBeDefined();

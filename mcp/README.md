@@ -42,6 +42,7 @@ lookin status
 
 - skill 名称：`lookin-mcp-router`
 - 本地路径：`LookinCLI/skill/lookin-mcp-router`
+- 仓库地址：`https://github.com/biniendafeliupv187/LookinCLI/tree/main/skill/lookin-mcp-router`
 
 如果你的客户端支持加载本地 skill，可以把这个目录作为本地 skill 导入或启用。它的作用是帮助 AI 更稳定地选择 `lookin-mcp` 的调用顺序，并减少 `oid` / `layerOid` 用错的情况。
 

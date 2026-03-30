@@ -2,13 +2,31 @@
   "name": "@biniendafeliupv/lookin-cli",
   "version": "0.1.7",
   "description": "CLI and MCP server for Lookin-based iOS UI inspection",
+  "homepage": "https://github.com/biniendafeliupv187/LookinCLI/tree/dev/mcp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/biniendafeliupv187/LookinCLI.git",
+    "directory": "mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/biniendafeliupv187/LookinCLI/issues"
+  },
+  "keywords": [
+    "lookin",
+    "mcp",
+    "ios",
+    "uikit",
+    "debugging",
+    "claude"
+  ],
   "type": "module",
   "main": "dist/mcp/index.js",
   "files": [
     "dist",
     "bridge/Package.swift",
     "bridge/Sources",
-    "README.md"
+    "README.md",
+    "DEVELOPMENT.md"
   ],
   "engines": {
     "node": ">=18"
@@ -26,6 +44,8 @@
     "build:bridge": "swift build --package-path bridge",
     "start": "node dist/mcp/index.js",
     "cli": "node dist/cli/index.js",
+    "dev:cli": "node dist/cli/index.js",
+    "dev:mcp": "node dist/mcp/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "dev": "tsc --watch"

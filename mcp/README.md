@@ -1,34 +1,13 @@
-# LookinCLI / LookinMCP
+# Lookin CLI / Lookin MCP
 
 基于 [LookinServer](https://lookin.work/) 的命令行与 MCP 工具集，用来在没有桌面 GUI 的情况下读取和修改 iOS App 的界面信息。
 
-当前工程提供两个入口：
+当前包提供两个入口：
 
 - `lookin`：给人和脚本直接使用的 CLI
-- `lookin-mcp`：给 Claude Desktop / MCP Client 使用的 stdio server
+- `lookin-mcp`：给 Claude Desktop / 其他 MCP Client 使用的 stdio server
 
 两者共享同一套命令层，不是两套独立实现。
-
-## 功能概览
-
-- 自动发现可连接的模拟器或真机 LookinServer
-- 获取界面层级：`status`、`get_hierarchy`、`search`、`list_view_controllers`
-- 获取视图详情：`get_view`、`get_screenshot`、`get_app_info`
-- 运行时修改属性：`modify_view`
-- 支持进程内缓存，减少重复拉取 hierarchy 的开销
-- 通过 Swift bridge 处理 `NSKeyedArchiver` 编解码
-
-### 当前暴露的命令 / Tool
-
-- `status`
-- `get_hierarchy`
-- `search`
-- `list_view_controllers`
-- `reload`
-- `get_view`
-- `get_screenshot`
-- `modify_view`
-- `get_app_info`
 
 ## 环境要求
 
@@ -39,132 +18,36 @@
 
 ## 安装
 
-### 从源码本地安装
-
-在仓库根目录执行：
-
-```bash
-cd LookinCLI/mcp
-npm install
-npm run build
-npm link
-lookin init
-```
-
-完成后可以直接使用：
-
-```bash
-lookin --help
-```
-
-说明：
-
-- `npm run build` 会编译 TypeScript 层，生成 `dist/`
-- `npm link` 会把当前包软链接为全局命令，并暴露 `lookin` / `lookin-mcp`
-- `lookin init` 会初始化本地运行环境，当前会自动构建 `lookin-bridge`
-
-### 未来发布到 npm 后安装
-
-如果发布为 npm 包，例如 `@biniendafeliupv/lookin-cli`，可以直接：
-
 ```bash
 npm install -g @biniendafeliupv/lookin-cli
 lookin init
 ```
 
-然后使用：
+安装完成后可以先检查连通性：
 
 ```bash
 lookin status
 ```
 
-## CLI 用法
+说明：
 
-### 本地开发
-
-如果你正在本地开发这个仓库，先按上面的“从源码本地安装”完成初始化。
-
-如果还没执行 `npm link`，也可以直接通过 npm script 调试 CLI：
-
-```bash
-npm run cli -- --help
-npm run cli -- status
-npm run cli -- get_hierarchy --format json --max-depth 10
-```
-
-完成 `npm link` 后，可以直接使用全局命令：
-
-```bash
-lookin --help
-lookin status
-lookin get_hierarchy --format json --max-depth 10
-```
-
-### 普通使用方
-
-如果你是普通使用方，先按上面的“未来发布到 npm 后安装”完成安装与初始化，然后可以直接使用 CLI：
-
-```bash
-lookin --help
-lookin status
-lookin get_hierarchy --format json --max-depth 10
-lookin search --query UIButton
-lookin get_view --oid 42
-lookin modify_view --oid 42 --attribute hidden --value true
-lookin get_app_info
-```
-
-### 常见说明
-
-- `get_hierarchy` 支持 `--format text|json`，不传 `--max-depth` 时会全量返回视图层级
-- `lookin init` 用来初始化本地运行环境；当前主要会构建 `lookin-bridge`
+- `lookin init` 会初始化本地运行环境，当前主要会自动构建 `lookin-bridge`
 - `lookin init --force` 可用于强制重建初始化产物
-- `modify_view` 当前支持的属性是：`hidden`、`alpha`、`frame`、`backgroundColor`、`text`
-- `oid` 是 view object id，`layerOid` 是 layer object id；两者不是一回事
-- 修改 `text` 时必须传当前节点的 `oid`
-- 修改 `hidden`、`alpha`、`frame`、`backgroundColor` 时必须传当前节点的 `layerOid`
-- `oid` / `layerOid` 只对当前这次 app 运行和当前 hierarchy 有效，页面重建、列表复用、app 重启后都可能变化；不要长期保存旧值直接复用
-- 如果你只有 class name、文案或大概位置，先用 `search` 或 `get_hierarchy` 找到这一次的正确 `oid` / `layerOid`，再调用 `get_view` / `modify_view`
-- `frame`、`backgroundColor` 这类参数可以传 JSON 字符串，例如：
-- CLI 默认是“一次命令一次进程”，所以缓存只在单次命令执行期间有效，不能跨多次 `lookin ...` 调用复用
-- 如果你希望连续多次查询都用上缓存，优先使用常驻的 `lookin-mcp`
 
-```bash
-lookin modify_view --oid 415 --attribute text --value "hello"
-lookin modify_view --oid 42 --attribute frame --value "[0,0,120,44]"
-```
+## 安装 Skill / 接入 MCP
 
-## MCP 用法
+### 在支持本地 Skill 的环境中使用
 
-### 本地开发
+仓库内自带一个可配合 `lookin-mcp` 使用的本地 skill：
 
-如果你正在本地开发这个仓库，先按上面的“从源码本地安装”完成初始化，然后可以手动启动 MCP server：
+- skill 名称：`lookin-mcp-router`
+- 本地路径：`LookinCLI/skill/lookin-mcp-router`
 
-```bash
-npm start
-```
+如果你的客户端支持加载本地 skill，可以把这个目录作为本地 skill 导入或启用。它的作用是帮助 AI 更稳定地选择 `lookin-mcp` 的调用顺序，并减少 `oid` / `layerOid` 用错的情况。
 
-或直接执行：
+如果你的客户端不支持本地 skill，也可以直接按下面的 MCP 配置方式使用 `lookin-mcp`。
 
-```bash
-lookin-mcp
-```
-
-本地开发时，Claude Desktop 推荐配置为：
-
-```json
-{
-  "mcpServers": {
-    "lookin-mcp": {
-      "command": "lookin-mcp"
-    }
-  }
-}
-```
-
-### 普通使用方
-
-如果你是普通使用方，不关心源码，先按上面的“未来发布到 npm 后安装”完成初始化，然后在 Claude Desktop 或其他 MCP Client 中配置 `lookin-mcp` 即可。
+### 在 MCP Client 中配置
 
 Claude Desktop 示例配置：
 
@@ -178,15 +61,47 @@ Claude Desktop 示例配置：
 }
 ```
 
-### Cache 说明
+配置完成后，重启 MCP Client，即可通过自然语言调用 Lookin 能力。
 
-`lookin-mcp` 是常驻进程，会持有进程内 `CacheManager`，因此连续的 MCP Tool 调用可以复用缓存。
-
-`lookin` CLI 默认是一次执行一次退出，例如：
+## CLI 快速开始
 
 ```bash
-lookin get_hierarchy
+lookin --help
+lookin status
+lookin get_hierarchy --format json --max-depth 10
 lookin search --query UIButton
+lookin get_view --oid 42
+lookin get_app_info
 ```
 
-这两次调用之间不会共享内存缓存。也就是说，CLI 可以复用命令层逻辑，但默认不能像 MCP 一样跨调用享受缓存收益。
+运行时修改示例：
+
+```bash
+lookin modify_view --oid 415 --attribute text --value "hello"
+lookin modify_view --oid 42 --attribute frame --value "[0,0,120,44]"
+```
+
+## 当前能力
+
+- 自动发现可连接的模拟器或真机 LookinServer
+- 获取界面层级：`status`、`get_hierarchy`、`search`、`list_view_controllers`
+- 获取视图详情：`get_view`、`get_screenshot`、`get_app_info`
+- 运行时修改属性：`modify_view`
+- 支持进程内缓存，减少重复拉取 hierarchy 的开销
+- 通过 Swift bridge 处理 `NSKeyedArchiver` 编解码
+
+## 常见说明
+
+- `get_hierarchy` 支持 `--format text|json`，不传 `--max-depth` 时会全量返回视图层级
+- `modify_view` 当前支持的属性是：`hidden`、`alpha`、`frame`、`backgroundColor`、`text`
+- `oid` 是 view object id，`layerOid` 是 layer object id；两者不是一回事
+- 修改 `text` 时必须传当前节点的 `oid`
+- 修改 `hidden`、`alpha`、`frame`、`backgroundColor` 时必须传当前节点的 `layerOid`
+- `oid` / `layerOid` 只对当前这次 app 运行和当前 hierarchy 有效，页面重建、列表复用、app 重启后都可能变化；不要长期保存旧值直接复用
+- 如果你只有 class name、文案或大概位置，先用 `search` 或 `get_hierarchy` 找到这一次的正确 `oid` / `layerOid`，再调用 `get_view` / `modify_view`
+- CLI 默认是“一次命令一次进程”，所以缓存只在单次命令执行期间有效，不能跨多次 `lookin ...` 调用复用
+- `lookin-mcp` 是常驻进程，会持有进程内 `CacheManager`，因此连续的 MCP Tool 调用可以复用缓存
+
+## 开发者说明
+
+本地开发、调试、构建测试和发布流程见 [DEVELOPMENT.md](./DEVELOPMENT.md)。

@@ -1,9 +1,0 @@
-{
-  "eval_id": 3, "config": "without_skill",
-  "expectations": [
-    {"text": "明确指出用户提供的是 layerOid，但修改 text 需要的是 oid，两者不同", "passed": false, "evidence": "未区分 layerOid 和 oid 的差异，直接接受用户的 layerOid"},
-    {"text": "没有直接用 layerOid 调用 modify_view 修改 text", "passed": false, "evidence": "直接调用 modify_view(layerOid: '0x7f8b1c2d3e4f', property: 'text', ...)，参数类型错误"},
-    {"text": "提示用户如何获取正确的 oid（通过 get_hierarchy 或 search）", "passed": false, "evidence": "没有任何引导，直接执行了错误调用"}
-  ],
-  "summary": {"passed": 0, "failed": 3, "total": 3, "pass_rate": 0.0}
-}

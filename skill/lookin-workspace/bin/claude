@@ -1,0 +1,5 @@
+#!/bin/zsh
+
+source ~/.zshrc || exit $?
+mm >/dev/null || exit $?
+exec /Users/majianming/.nvm/versions/node/v22.22.0/bin/claude "$@"

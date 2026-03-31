@@ -262,7 +262,8 @@ describe('connection refused structured error', () => {
   });
 
   it('get_view returns TRANSPORT_REFUSED code when port unreachable', async () => {
-    appSessionMock.mockImplementationOnce(() => ({
+    // getView makes 2 requests (hierarchy + attr groups). Both must fail for TRANSPORT_REFUSED.
+    appSessionMock.mockImplementation(() => ({
       request: vi.fn().mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:19998')),
       close: vi.fn(),
     }));

@@ -21,7 +21,9 @@ export type LookinErrorCode =
   | 'PROTOCOL_VERSION_INCOMPATIBLE'
   | 'VALIDATION_INVALID_ATTRIBUTE'
   | 'VALIDATION_INVALID_TARGET'
-  | 'VALIDATION_INVALID_VALUE';
+  | 'VALIDATION_INVALID_VALUE'
+  | 'VALIDATION_MISSING_INPUT'
+  | 'NOT_FOUND';
 
 /**
  * Structured error for all Lookin MCP operations.

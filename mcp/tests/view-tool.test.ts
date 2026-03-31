@@ -28,6 +28,7 @@ appSessionMock.mockImplementation(() => ({
 
 vi.mock('../src/core/app-session.js', () => ({
   LookinRequestType: {
+    Hierarchy: 202,
     AllAttrGroups: 210,
   },
   AppSession: appSessionMock,
@@ -125,10 +126,13 @@ describe('get_view MCP tool', () => {
       arguments: { oid: 42 },
     });
 
-    expect(requestMock).toHaveBeenCalledTimes(1);
-    expect(requestMock.mock.calls[0][0]).toBe(210);
-    expect(requestMock.mock.calls[0][1]).toBeInstanceOf(Buffer);
-    expect((requestMock.mock.calls[0][1] as Buffer).byteLength).toBeGreaterThan(0);
+    // get_view makes 2 requests: hierarchy (202) to enrich response, then attr groups (210).
+    // Hierarchy fetch fails silently (non-fatal) when response is not LookinHierarchyInfo.
+    expect(requestMock).toHaveBeenCalledTimes(2);
+    const attrGroupsCall = requestMock.mock.calls.find((c: any[]) => c[0] === 210);
+    expect(attrGroupsCall).toBeDefined();
+    expect(attrGroupsCall![1]).toBeInstanceOf(Buffer);
+    expect((attrGroupsCall![1] as Buffer).byteLength).toBeGreaterThan(0);
   });
 
   it('get_view reports error when server is unreachable', async () => {

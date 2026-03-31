@@ -439,6 +439,53 @@ describe('LookinCliService scoped cache routing', () => {
     expect(cache.getViewDetail(scopeB, 222)).not.toBeNull();
   });
 
+  it('reuses the resolved endpoint when cached getView data is available', async () => {
+    const cache = new CacheManager();
+    const endpoint = { host: '127.0.0.1', port: 47175, transport: 'usb' as const, deviceID: 2 };
+    const endpointCacheKey = 'usb:127.0.0.1:47175';
+    const scope = 'com.test.cached::iPhone::cached';
+    const discovery = {
+      probeFirst: vi.fn().mockResolvedValue(endpoint),
+    };
+
+    cache.setHierarchy(scope, {
+      $class: 'LookinHierarchyInfo',
+      appInfo: {
+        appName: 'Cached App',
+        appBundleIdentifier: 'com.test.cached',
+        deviceDescription: 'iPhone',
+      },
+      displayItems: [
+        {
+          layerObject: { oid: 222, classChainList: ['CALayer'] },
+          viewObject: {
+            oid: 333,
+            classChainList: ['UILabel'],
+            memoryAddress: '0xabcdef',
+          },
+          frame: { x: 0, y: 0, width: 10, height: 10 },
+          isHidden: false,
+          alpha: 1,
+        },
+      ],
+    });
+    cache.setActiveScopeKey(endpointCacheKey, scope);
+    cache.setViewDetail(scope, 222, { oid: 222, attrGroups: [] });
+
+    const service = new LookinCliService({
+      cache,
+      discovery: discovery as any,
+      bridgeClient: createBridgeStub() as any,
+    });
+
+    const result = await service.getView(222) as any;
+
+    expect(result.viewMemoryAddress).toBe('0xabcdef');
+    expect(result._meta.cacheHit).toBe(true);
+    expect(requestMock).not.toHaveBeenCalled();
+    expect(discovery.probeFirst).toHaveBeenCalledTimes(1);
+  });
+
   it('falls back to active-scope cached app info when ping fails', async () => {
     const cache = new CacheManager();
     const endpoint = { host: '127.0.0.1', port: 47175, transport: 'simulator' as const };

@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import { AppSession, LookinRequestType } from './app-session.js';
 import { BridgeClient } from './bridge-client.js';
 import { CacheManager } from './cache.js';
@@ -11,8 +14,10 @@ export interface HierarchyViewNode {
   frame: { x: number; y: number; width: number; height: number };
   isHidden: boolean;
   alpha: number;
+  viewMemoryAddress: string | null;
   isKeyWindow?: boolean;
   viewController?: string;
+  ivarAnnotation?: string;
   subitems?: HierarchyViewNode[];
 }
 
@@ -25,6 +30,7 @@ export interface HierarchyCommandResult {
 export interface ScreenshotCommandResult {
   metadata: Record<string, unknown>;
   imageBase64: string;
+  savedPath?: string;
 }
 
 export const ATTR_WHITELIST: Record<
@@ -40,6 +46,16 @@ export const ATTR_WHITELIST: Record<
     target: 'layer',
   },
   text: { setter: 'setText:', attrType: 24, target: 'view' },
+  // Layer visual attributes
+  cornerRadius: { setter: 'setCornerRadius:', attrType: 13, target: 'layer' },
+  borderWidth: { setter: 'setBorderWidth:', attrType: 13, target: 'layer' },
+  borderColor: { setter: 'setLks_borderColor:', attrType: 27, target: 'layer' },
+  shadowColor: { setter: 'setLks_shadowColor:', attrType: 27, target: 'layer' },
+  shadowOpacity: { setter: 'setShadowOpacity:', attrType: 12, target: 'layer' },
+  shadowRadius: { setter: 'setShadowRadius:', attrType: 13, target: 'layer' },
+  shadowOffsetX: { setter: 'setLks_shadowOffsetWidth:', attrType: 13, target: 'layer' },
+  shadowOffsetY: { setter: 'setLks_shadowOffsetHeight:', attrType: 13, target: 'layer' },
+  masksToBounds: { setter: 'setMasksToBounds:', attrType: 14, target: 'layer' },
 };
 
 export interface LookinCliServiceOptions {
@@ -47,6 +63,7 @@ export interface LookinCliServiceOptions {
   cache?: CacheManager;
   bridgeClient?: BridgeClient;
   discovery?: DeviceDiscovery;
+  screenshotsDir?: string;
 }
 
 interface HierarchyFetchResult {
@@ -64,11 +81,13 @@ interface EndpointSessionContext {
 
 interface SearchResult {
   oid: number;
+  layerOid: number;
   className: string;
   frame: { x: number; y: number; width: number; height: number };
   isHidden: boolean;
   alpha: number;
   parentChain: string;
+  viewMemoryAddress: string | null;
   text?: string;
 }
 
@@ -87,12 +106,14 @@ export class LookinCliService {
   private readonly cache?: CacheManager;
   private readonly discovery: DeviceDiscovery;
   private readonly bridge: BridgeClient;
+  private readonly screenshotsDir: string;
 
   constructor(options: LookinCliServiceOptions = {}) {
     this.fixedEndpoint = options.fixedEndpoint;
     this.cache = options.cache;
     this.discovery = options.discovery ?? new DeviceDiscovery();
     this.bridge = options.bridgeClient ?? new BridgeClient();
+    this.screenshotsDir = options.screenshotsDir ?? path.join(os.homedir(), 'LookinCLI', 'screenshots');
   }
 
   async status(): Promise<Record<string, unknown>> {
@@ -228,11 +249,13 @@ export class LookinCliService {
       if (matchesClass || matchesAddress) {
         results.push({
           oid: viewObj?.oid ?? 0,
+          layerOid: item.layerObject?.oid ?? 0,
           className,
           frame: item.frame ?? { x: 0, y: 0, width: 0, height: 0 },
           isHidden: item.isHidden ?? false,
           alpha: item.alpha ?? 0,
           parentChain: parentChain.join(' > '),
+          viewMemoryAddress: item.viewObject?.memoryAddress ?? null,
         });
       }
     }
@@ -374,19 +397,25 @@ export class LookinCliService {
     };
   }
 
-  async getView(oid: number): Promise<Record<string, unknown>> {
+  async getView(oid: number, options?: { includeConstraints?: boolean }): Promise<Record<string, unknown>> {
     const startMs = Date.now();
     const endpoint = await this.resolveEndpoint();
-    const activeScopeKey = this.getActiveScopeKey(endpoint);
-    const scopeKey = activeScopeKey ?? 'global';
+    let activeScopeKey = this.getActiveScopeKey(endpoint);
     const cachedView = activeScopeKey
       ? this.cache?.getViewDetail(activeScopeKey, oid)
       : this.cache?.getViewDetail(oid);
 
     if (cachedView) {
+      const cachedHierarchy = this.cache?.peekHierarchy(activeScopeKey ?? 'global');
+      const viewObjectData = findViewObjectByLayerOid(
+        cachedHierarchy?.data?.displayItems ?? [],
+        oid,
+      );
       const elapsedMs = Date.now() - startMs;
       return {
         ...cachedView.data,
+        ...buildViewObjectFields(viewObjectData),
+        ...(options?.includeConstraints ? { constraints: extractConstraints(cachedView.data.attrGroups) } : {}),
         _meta: CacheManager.buildMeta({
           cacheHit: true,
           source: 'cache',
@@ -396,6 +425,22 @@ export class LookinCliService {
       };
     }
 
+    // Fetch hierarchy to enrich response with ivarTrace/memoryAddress.
+    // Non-fatal: if hierarchy fetch fails for any reason, getView still returns attr groups.
+    let viewObjectData: any = null;
+    try {
+      const hierarchyFetched = await this.fetchHierarchyInfo(endpoint);
+      viewObjectData = findViewObjectByLayerOid(
+        hierarchyFetched.hierarchyInfo.displayItems ?? [],
+        oid,
+      );
+      // Refresh scope key — it may have just been registered by the hierarchy fetch.
+      activeScopeKey = this.getActiveScopeKey(endpoint) ?? hierarchyFetched.scopeKey;
+    } catch {
+      // Hierarchy unavailable — proceed without ivarTrace/viewMemoryAddress enrichment.
+    }
+    const scopeKey = activeScopeKey ?? 'global';
+
     const result = await this.withSession(
       async ({ session }) => this.fetchViewAttrs(oid, session, scopeKey),
       endpoint,
@@ -404,6 +449,8 @@ export class LookinCliService {
     const elapsedMs = Date.now() - startMs;
     return {
       ...result,
+      ...buildViewObjectFields(viewObjectData),
+      ...(options?.includeConstraints ? { constraints: extractConstraints(result.attrGroups) } : {}),
       _meta: CacheManager.buildMeta({
         cacheHit: false,
         source: 'live',
@@ -651,6 +698,7 @@ export class LookinCliService {
   }
 
   async getScreenshot(oid: number): Promise<ScreenshotCommandResult> {
+    const fetchedHierarchy = await this.fetchHierarchyInfo().catch(() => null);
     const response = await this.withSession(async ({ session }) => {
       const payload = await this.encodePayload({
         $class: 'LookinConnectionAttachment',
@@ -707,7 +755,316 @@ export class LookinCliService {
     if (detail.alpha !== undefined) metadata.alpha = detail.alpha;
     if (detail.isHidden !== undefined) metadata.isHidden = detail.isHidden;
 
-    return { metadata, imageBase64 };
+    const className = fetchedHierarchy
+      ? (
+          findDisplayItemByLayerOid(fetchedHierarchy.hierarchyInfo.displayItems ?? [], oid)
+            ?.viewObject?.classChainList?.[0] ??
+          findDisplayItemByLayerOid(fetchedHierarchy.hierarchyInfo.displayItems ?? [], oid)
+            ?.layerObject?.classChainList?.[0] ??
+          String(oid)
+        )
+      : String(oid);
+    const savedPath = await this.saveScreenshotToDisk(imageBase64, className);
+    return { metadata, imageBase64, savedPath };
+  }
+
+  private async saveScreenshotToDisk(base64: string, className: string): Promise<string> {
+    const dir = this.screenshotsDir;
+    await fs.promises.mkdir(dir, { recursive: true });
+    const timestamp = Date.now();
+    const safeName = className.replace(/[^a-zA-Z0-9_.-]/g, '_');
+    const filename = `${timestamp}_${safeName}.png`;
+    const filePath = path.join(dir, filename);
+    const imageData = Buffer.from(base64, 'base64');
+    await fs.promises.writeFile(filePath, imageData);
+    return filePath;
+  }
+
+  // ─── Task 5: get_memory_address ─────────────────────────────────────────────
+
+  async getMemoryAddress(input: { query?: string; text?: string; viewOid?: number }): Promise<Record<string, unknown>> {
+    if (input.query === undefined && input.text === undefined && input.viewOid === undefined) {
+      throw new LookinError('VALIDATION_MISSING_INPUT', 'At least one of query, text, or viewOid must be provided');
+    }
+
+    if (input.text) {
+      const searchResult = await this.search(input.query, input.text);
+      const results = Array.isArray(searchResult.results)
+        ? searchResult.results.map((entry: any) => ({
+            oid: entry.oid ?? 0,
+            className: entry.className ?? 'Unknown',
+            viewMemoryAddress: entry.viewMemoryAddress ?? null,
+            layerOid: entry.layerOid ?? null,
+            text: entry.text ?? null,
+          }))
+        : [];
+      return { results };
+    }
+
+    const fetched = await this.fetchHierarchyInfo();
+    const flattened = flattenItems(fetched.hierarchyInfo.displayItems ?? []);
+    const results: Array<Record<string, unknown>> = [];
+
+    for (const { item } of flattened) {
+      const viewObj = item.viewObject ?? item.layerObject;
+      const className = viewObj?.classChainList?.[0] ?? 'Unknown';
+      let matches = false;
+      if (input.viewOid !== undefined) {
+        matches = item.viewObject?.oid === input.viewOid;
+      } else if (input.query) {
+        matches = className.toLowerCase().includes(input.query.toLowerCase());
+      }
+      if (matches) {
+        results.push({
+          oid: viewObj?.oid ?? 0,
+          className,
+          viewMemoryAddress: item.viewObject?.memoryAddress ?? null,
+          layerOid: item.layerObject?.oid ?? 0,
+        });
+      }
+    }
+
+    return { results };
+  }
+
+  // ─── Task 6: measure_distance ────────────────────────────────────────────────
+
+  async measureDistance(layerOidA: number, layerOidB: number): Promise<Record<string, unknown>> {
+    const fetched = await this.fetchHierarchyInfo();
+    const hierarchyItems = fetched.hierarchyInfo.displayItems ?? [];
+    const geometryA = calculateFrameToRoot(hierarchyItems, layerOidA);
+    const geometryB = calculateFrameToRoot(hierarchyItems, layerOidB);
+
+    if (!geometryA || !geometryB) {
+      const missingOid = geometryA ? layerOidB : layerOidA;
+      throw new LookinError('NOT_FOUND', `No display item found for layerOid ${missingOid}`);
+    }
+
+    if (geometryA.rootLayerOid !== geometryB.rootLayerOid) {
+      throw new LookinError(
+        'VALIDATION_INVALID_TARGET',
+        `layerOid ${layerOidA} and ${layerOidB} are not in a common root coordinate system`,
+      );
+    }
+
+    const frameA = geometryA.frame;
+    const frameB = geometryB.frame;
+    const aLeft = frameA.x, aRight = frameA.x + frameA.width;
+    const aTop = frameA.y, aBottom = frameA.y + frameA.height;
+    const bLeft = frameB.x, bRight = frameB.x + frameB.width;
+    const bTop = frameB.y, bBottom = frameB.y + frameB.height;
+
+    const containsAContainsB =
+      aLeft <= bLeft && aRight >= bRight && aTop <= bTop && aBottom >= bBottom;
+    const containsBContainsA =
+      bLeft <= aLeft && bRight >= aRight && bTop <= aTop && bBottom >= aBottom;
+
+    if (containsAContainsB || containsBContainsA) {
+      const container = containsAContainsB ? frameA : frameB;
+      const containee = containsAContainsB ? frameB : frameA;
+      return {
+        relationship: 'containing',
+        classA: geometryA.className,
+        classB: geometryB.className,
+        top: containee.y - container.y,
+        bottom: (container.y + container.height) - (containee.y + containee.height),
+        left: containee.x - container.x,
+        right: (container.x + container.width) - (containee.x + containee.width),
+      };
+    }
+
+    const overlapX = Math.min(aRight, bRight) - Math.max(aLeft, bLeft);
+    const overlapY = Math.min(aBottom, bBottom) - Math.max(aTop, bTop);
+    const horizontalDistance =
+      overlapX > 0 ? -overlapX : Math.max(bLeft - aRight, aLeft - bRight);
+    const verticalDistance =
+      overlapY > 0 ? -overlapY : Math.max(bTop - aBottom, aTop - bBottom);
+    const relationship = overlapX > 0 && overlapY > 0 ? 'overlapping' : 'separated';
+
+    return {
+      relationship,
+      classA: geometryA.className,
+      classB: geometryB.className,
+      top: verticalDistance,
+      bottom: verticalDistance,
+      left: horizontalDistance,
+      right: horizontalDistance,
+    };
+  }
+
+  // ─── Task 7: get_event_handlers ──────────────────────────────────────────────
+
+  async getEventHandlers(layerOid: number): Promise<Record<string, unknown>> {
+    const fetched = await this.fetchHierarchyInfo();
+    const items = flattenItems(fetched.hierarchyInfo.displayItems ?? []);
+    const entry = items.find(({ item }) => item.layerObject?.oid === layerOid);
+    if (!entry) {
+      throw new LookinError('NOT_FOUND', `No display item found for layerOid ${layerOid}`);
+    }
+    const rawHandlers: any[] = entry.item.eventHandlers ?? [];
+    const eventHandlers = rawHandlers.map((h: any) => {
+      const targetActions = (h.targetActions ?? []).map((t: any) => ({
+        target: t.first ?? null,
+        action: t.second ?? null,
+      }));
+      const base: Record<string, unknown> = {
+        type: h.handlerType === 1 ? 'gesture' : 'targetAction',
+        eventName: h.eventName ?? null,
+        targetActions,
+      };
+      if (h.handlerType === 0) {
+      } else {
+        base.recognizerOid = h.recognizerOid ?? 0;
+        base.enabled = h.gestureRecognizerIsEnabled ?? true;
+        base.delegator = h.gestureRecognizerDelegator ?? null;
+        base.gestureRecognizerIsEnabled = base.enabled;
+        base.gestureRecognizerDelegator = base.delegator;
+      }
+      return base;
+    });
+    return { layerOid, eventHandlers };
+  }
+
+  // ─── Task 8: get_methods ──────────────────────────────────────────────────────
+
+  async getMethods(input: { oid?: number; className?: string; includeArgs?: boolean }): Promise<Record<string, unknown>> {
+    if (input.oid === undefined && input.className === undefined) {
+      throw new LookinError('VALIDATION_MISSING_INPUT', 'At least one of oid or className must be provided');
+    }
+
+    let resolvedClassName = input.className;
+    let classHierarchy: string[] | undefined;
+    if (!resolvedClassName && input.oid !== undefined) {
+      // Resolve className from hierarchy
+      const fetched = await this.fetchHierarchyInfo();
+      const items = flattenItems(fetched.hierarchyInfo.displayItems ?? []);
+      const entry = items.find(({ item }) => item.layerObject?.oid === input.oid);
+      if (!entry) {
+        throw new LookinError('NOT_FOUND', `No display item found for layerOid ${input.oid}`);
+      }
+      const viewObj = entry.item.viewObject ?? entry.item.layerObject;
+      resolvedClassName = viewObj?.classChainList?.[0] ?? null;
+      classHierarchy = Array.isArray(viewObj?.classChainList)
+        ? viewObj.classChainList.filter((value: unknown): value is string => typeof value === 'string')
+        : undefined;
+      if (!resolvedClassName) {
+        throw new LookinError('NOT_FOUND', `Could not determine className for layerOid ${input.oid}`);
+      }
+    }
+
+    const includeArgs = input.includeArgs ?? false;
+    const endpoint = await this.resolveEndpoint();
+    const rawMethods = await this.withSession(async ({ session }) => {
+      const payload = await this.encodePayload({
+        $class: 'LookinConnectionAttachment',
+        dataType: 0,
+        data: { className: resolvedClassName, hasArg: includeArgs },
+      });
+      const responseBuf = await session.request(LookinRequestType.AllSelectorNames, payload, 10000);
+      const response = await this.decodeBuffer(responseBuf);
+      return response.data ?? [];
+    }, endpoint);
+
+    const methodsByClass = normalizeMethodsByClass(rawMethods, resolvedClassName!);
+    const filteredMethodsByClass = Object.fromEntries(
+      Object.entries(methodsByClass).map(([className, methods]) => [
+        className,
+        methods.filter((method) => includeArgs || !method.includes(':')),
+      ]),
+    );
+    const methods = Object.values(filteredMethodsByClass).flat();
+
+    return {
+      className: resolvedClassName,
+      classHierarchy: classHierarchy ?? [resolvedClassName!],
+      includeArgs,
+      methods,
+      methodsByClass: filteredMethodsByClass,
+    };
+  }
+
+  // ─── Task 9: get_image ────────────────────────────────────────────────────────
+
+  async getImage(layerOid: number): Promise<Record<string, unknown>> {
+    const fetched = await this.fetchHierarchyInfo();
+    const targetItem = findDisplayItemByLayerOid(fetched.hierarchyInfo.displayItems ?? [], layerOid);
+    if (!targetItem) {
+      throw new LookinError('NOT_FOUND', `No display item found for layerOid ${layerOid}`);
+    }
+
+    const classChain =
+      targetItem.viewObject?.classChainList ??
+      targetItem.layerObject?.classChainList ??
+      [];
+    const className =
+      classChain[0] ??
+      targetItem.layerObject?.classChainList?.[0] ??
+      'Unknown';
+    if (!classChain.includes('UIImageView')) {
+      throw new LookinError(
+        'VALIDATION_INVALID_TARGET',
+        `oid ${layerOid} is ${className}, not UIImageView`,
+      );
+    }
+
+    const endpoint = await this.resolveEndpoint();
+    const response = await this.withSession(async ({ session }) => {
+      const payload = await this.encodePayload({
+        $class: 'LookinConnectionAttachment',
+        dataType: 0,
+        data: layerOid,
+      });
+      const responseBuf = await session.request(LookinRequestType.FetchImageViewImage, payload, 10000);
+      return this.decodeBuffer(responseBuf);
+    }, endpoint);
+
+    if (response.$class !== 'LookinConnectionResponseAttachment') {
+      throw new LookinError('PROTOCOL_UNEXPECTED_RESPONSE', `Unexpected response class: ${response.$class}`);
+    }
+
+    const data = response.data;
+    const imageBase64: string = data?.imageBase64 ?? data;
+    if (!imageBase64 || typeof imageBase64 !== 'string') {
+      throw new LookinError('PROTOCOL_UNEXPECTED_RESPONSE', `No image data returned for layerOid ${layerOid}`);
+    }
+
+    const savedPath = await this.saveScreenshotToDisk(imageBase64, `${className}_image`);
+    return {
+      imageBase64,
+      imageSize: data?.imageSize ?? null,
+      savedPath,
+    };
+  }
+
+  // ─── Task 10: toggle_gesture ─────────────────────────────────────────────────
+
+  async toggleGesture(input: { recognizerOid: number; enabled: boolean }): Promise<Record<string, unknown>> {
+    const endpoint = await this.resolveEndpoint();
+    const response = await this.withSession(async ({ session }) => {
+      const payload = await this.encodePayload({
+        $class: 'LookinConnectionAttachment',
+        dataType: 0,
+        data: { recognizerOid: input.recognizerOid, enabled: input.enabled },
+      });
+      const responseBuf = await session.request(LookinRequestType.ModifyRecognizerEnable, payload, 10000);
+      return this.decodeBuffer(responseBuf);
+    }, endpoint);
+
+    if (response?.error) {
+      throw new LookinError(
+        'PROTOCOL_REMOTE_ERROR',
+        response.error.description ??
+          response.error.localizedDescription ??
+          'Remote gesture toggle failed',
+      );
+    }
+
+    return {
+      success: true,
+      recognizerOid: input.recognizerOid,
+      enabled: input.enabled,
+      gestureType: response?.data?.gestureType ?? null,
+    };
   }
 
   private async fetchHierarchyInfo(endpoint?: DeviceEndpoint): Promise<HierarchyFetchResult> {
@@ -852,6 +1209,15 @@ function toViewNode(
   const className = viewObj?.classChainList?.[0] ?? 'Unknown';
   const oid = viewObj?.oid ?? 0;
   const layerOid = item.layerObject?.oid ?? oid;
+  const viewMemoryAddress: string | null = item.viewObject?.memoryAddress ?? null;
+
+  // Build ivar annotation from first ivarTrace entry if available
+  const ivarTraces: any[] = item.viewObject?.ivarTraces ?? [];
+  const firstIvar = ivarTraces[0];
+  const ivarAnnotation = firstIvar
+    ? `[${firstIvar.hostClassName}._${firstIvar.ivarName.replace(/^_/, '')}]`
+    : undefined;
+
   const node: HierarchyViewNode = {
     oid,
     layerOid,
@@ -859,7 +1225,12 @@ function toViewNode(
     frame: item.frame ?? { x: 0, y: 0, width: 0, height: 0 },
     isHidden: item.isHidden ?? false,
     alpha: item.alpha ?? 0,
+    viewMemoryAddress,
   };
+
+  if (ivarAnnotation) {
+    node.ivarAnnotation = ivarAnnotation;
+  }
 
   if (item.representedAsKeyWindow) {
     node.isKeyWindow = true;
@@ -892,6 +1263,7 @@ function toTextLines(nodes: HierarchyViewNode[], depth = 0): string[] {
     if (node.isHidden) parts.push('(hidden)');
     if (node.alpha !== 1) parts.push(`alpha=${node.alpha}`);
     if (node.viewController) parts.push(`<${node.viewController}>`);
+    if (node.ivarAnnotation) parts.push(node.ivarAnnotation);
     lines.push(parts.join(' '));
 
     if (node.subitems?.length) {
@@ -955,6 +1327,59 @@ function flattenItems(
   return result;
 }
 
+function findDisplayItemByLayerOid(items: any[], layerOid: number): any | null {
+  for (const item of items) {
+    if (item.layerObject?.oid === layerOid) {
+      return item;
+    }
+    const nested = findDisplayItemByLayerOid(item.subitems ?? [], layerOid);
+    if (nested) {
+      return nested;
+    }
+  }
+  return null;
+}
+
+function calculateFrameToRoot(
+  items: any[],
+  layerOid: number,
+  offsetX = 0,
+  offsetY = 0,
+  rootLayerOid?: number,
+): { frame: { x: number; y: number; width: number; height: number }; className: string; rootLayerOid: number } | null {
+  for (const item of items) {
+    const frame = item.frame ?? { x: 0, y: 0, width: 0, height: 0 };
+    const absoluteFrame = {
+      x: offsetX + (frame.x ?? 0),
+      y: offsetY + (frame.y ?? 0),
+      width: frame.width ?? 0,
+      height: frame.height ?? 0,
+    };
+    const currentRootLayerOid = rootLayerOid ?? item.layerObject?.oid ?? 0;
+    if (item.layerObject?.oid === layerOid) {
+      return {
+        frame: absoluteFrame,
+        className:
+          item.viewObject?.classChainList?.[0] ??
+          item.layerObject?.classChainList?.[0] ??
+          'Unknown',
+        rootLayerOid: currentRootLayerOid,
+      };
+    }
+    const nested = calculateFrameToRoot(
+      item.subitems ?? [],
+      layerOid,
+      absoluteFrame.x,
+      absoluteFrame.y,
+      currentRootLayerOid,
+    );
+    if (nested) {
+      return nested;
+    }
+  }
+  return null;
+}
+
 function findTargetOidKind(
   items: any[],
   oid: number,
@@ -978,6 +1403,7 @@ function findTargetOidKind(
 function filterSearchResults(
   items: Array<{
     oid: number;
+    layerOid: number;
     className: string;
     address: string;
     frame: { x: number; y: number; width: number; height: number };
@@ -997,11 +1423,13 @@ function filterSearchResults(
     })
     .map((item) => ({
       oid: item.oid,
+      layerOid: item.layerOid,
       className: item.className,
       frame: item.frame,
       isHidden: item.isHidden,
       alpha: item.alpha,
       parentChain: item.parentChain,
+      viewMemoryAddress: item.address ?? null,
     }));
 }
 
@@ -1024,11 +1452,13 @@ function buildCandidatesFromHierarchy(
       const viewObj = item.viewObject ?? item.layerObject;
       return {
         oid: viewObj?.oid ?? 0,
+        layerOid: item.layerObject?.oid ?? 0,
         className: viewObj?.classChainList?.[0] ?? 'Unknown',
         frame: item.frame ?? { x: 0, y: 0, width: 0, height: 0 },
         isHidden: item.isHidden ?? false,
         alpha: item.alpha ?? 0,
         parentChain: parentChain.join(' > '),
+        viewMemoryAddress: item.viewObject?.memoryAddress ?? null,
       };
     });
 }
@@ -1157,6 +1587,34 @@ function validateValue(
         return { ok: false, reason: 'text expects a string value' };
       }
       break;
+    case 'cornerRadius':
+    case 'borderWidth':
+    case 'shadowOpacity':
+    case 'shadowRadius':
+    case 'shadowOffsetX':
+    case 'shadowOffsetY':
+      if (typeof value !== 'number') {
+        return { ok: false, reason: `${attribute} expects a number value` };
+      }
+      break;
+    case 'borderColor':
+    case 'shadowColor':
+      if (
+        !Array.isArray(value) ||
+        value.length !== 4 ||
+        !value.every((entry) => typeof entry === 'number')
+      ) {
+        return {
+          ok: false,
+          reason: `${attribute} expects [r, g, b, a] number array (0.0 ~ 1.0)`,
+        };
+      }
+      break;
+    case 'masksToBounds':
+      if (typeof value !== 'boolean') {
+        return { ok: false, reason: 'masksToBounds expects a boolean value' };
+      }
+      break;
   }
 
   return { ok: true };
@@ -1181,4 +1639,104 @@ function buildReadableVersion(attribute: string, value: unknown): string {
     default:
       return `${attribute} = ${JSON.stringify(value)}`;
   }
+}
+
+// ─── ivarTrace / constraint helpers ─────────────────────────────────────────
+
+/** Find the display item in a hierarchy whose layerObject.oid matches the given oid. */
+function findViewObjectByLayerOid(items: any[], layerOid: number): any | null {
+  for (const item of items) {
+    if (item.layerObject?.oid === layerOid) {
+      return item.viewObject ?? null;
+    }
+    if (item.subitems?.length) {
+      const found = findViewObjectByLayerOid(item.subitems, layerOid);
+      if (found !== null) return found;
+    }
+  }
+  return null;
+}
+
+/** Extract ivarTrace and memoryAddress fields from a viewObject (or null). */
+function buildViewObjectFields(viewObj: any) {
+  if (!viewObj) {
+    return {
+      specialTrace: null,
+      ivarTraces: [],
+      viewMemoryAddress: null,
+    };
+  }
+  return {
+    specialTrace: viewObj.specialTrace ?? null,
+    ivarTraces: viewObj.ivarTraces ?? [],
+    viewMemoryAddress: viewObj.memoryAddress ?? null,
+  };
+}
+
+function normalizeMethodsByClass(rawMethods: unknown, fallbackClassName: string): Record<string, string[]> {
+  if (Array.isArray(rawMethods)) {
+    return {
+      [fallbackClassName]: rawMethods.filter((value): value is string => typeof value === 'string'),
+    };
+  }
+
+  if (rawMethods && typeof rawMethods === 'object') {
+    return Object.fromEntries(
+      Object.entries(rawMethods as Record<string, unknown>).map(([className, methods]) => [
+        className,
+        Array.isArray(methods)
+          ? methods.filter((value): value is string => typeof value === 'string')
+          : [],
+      ]),
+    );
+  }
+
+  return { [fallbackClassName]: [] };
+}
+
+const NS_LAYOUT_ATTRIBUTE_MAP: Record<number, string> = {
+  0: 'notAnAttribute',
+  1: 'left', 2: 'right', 3: 'top', 4: 'bottom',
+  5: 'leading', 6: 'trailing', 7: 'width', 8: 'height',
+  9: 'centerX', 10: 'centerY', 11: 'lastBaseline',
+  12: 'firstBaseline', 13: 'leftMargin', 14: 'rightMargin',
+  15: 'topMargin', 16: 'bottomMargin', 17: 'leadingMargin',
+  18: 'trailingMargin', 19: 'centerXWithinMargins', 20: 'centerYWithinMargins',
+};
+
+const NS_LAYOUT_RELATION_MAP: Record<number, string> = {
+  [-1]: '<=', 0: '==', 1: '>=',
+};
+
+/** Walk attrGroups to find LookinAutoLayoutConstraint entries. */
+function extractConstraints(attrGroups: any[]): any[] {
+  const constraints: any[] = [];
+  for (const group of attrGroups ?? []) {
+    for (const section of group.sections ?? []) {
+      for (const attr of section.attributes ?? []) {
+        if (attr.identifier === 'al_c_c' && Array.isArray(attr.value)) {
+          for (const c of attr.value) {
+            constraints.push({
+              identifier: c.identifier ?? null,
+              effective: c.effective ?? false,
+              active: c.active ?? false,
+              firstItem: c.firstItem
+                ? { class: c.firstItem.classChainList?.[0] ?? null, oid: c.firstItem.oid ?? null }
+                : null,
+              firstAttribute: NS_LAYOUT_ATTRIBUTE_MAP[c.firstAttribute] ?? String(c.firstAttribute),
+              relation: NS_LAYOUT_RELATION_MAP[c.relation] ?? '==',
+              secondItem: c.secondItem
+                ? { class: c.secondItem.classChainList?.[0] ?? null, oid: c.secondItem.oid ?? null }
+                : null,
+              secondAttribute: NS_LAYOUT_ATTRIBUTE_MAP[c.secondAttribute] ?? String(c.secondAttribute),
+              multiplier: c.multiplier ?? 1,
+              constant: c.constant ?? 0,
+              priority: c.priority ?? 1000,
+            });
+          }
+        }
+      }
+    }
+  }
+  return constraints;
 }

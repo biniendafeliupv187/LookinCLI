@@ -1,0 +1,54 @@
+[
+  {
+    "query": "帮我看下当前连接上的 iOS App 现在界面层级，先给我一个适合人看的精简树，不用 JSON。",
+    "should_trigger": true
+  },
+  {
+    "query": "页面上有很多 UIButton，我想先快速定位所有 UIButton，再挑一个继续看它的详细属性。",
+    "should_trigger": true
+  },
+  {
+    "query": "我有这个 label 的 layerOid：401，帮我把它的文字改成 Hello World。",
+    "should_trigger": true
+  },
+  {
+    "query": "帮我量一下这个按钮和封面图之间的距离，如果它们不在同一个页面坐标系里也请直接说，不要硬算。",
+    "should_trigger": true
+  },
+  {
+    "query": "帮我找出文案里包含“我的”的 UILabel，对应的 memory address 也一起给我，后面我还要继续查它详情。",
+    "should_trigger": true
+  },
+  {
+    "query": "Lookin 好像又抽风了，status 说找不到设备，但我只是想继续看按钮详情。你别一上来就说服务没开，先帮我判断是不是瞬时抖动。",
+    "should_trigger": true
+  },
+  {
+    "query": "这个 UIImageView 先帮我拿原图。如果服务端说没有 image data，也请直接告诉我这个节点不行，再换别的候选图，不要假装成功。",
+    "should_trigger": true
+  },
+  {
+    "query": "帮我改一下 LookinCLI 里的 vitest 用例，把 measure_distance 的跨 root case 补上。",
+    "should_trigger": false
+  },
+  {
+    "query": "帮我排查一下 iOS 真机的网络请求为什么 401，我想看 Charles 抓包和登录态。",
+    "should_trigger": false
+  },
+  {
+    "query": "帮我看一下 Android 页面层级，想知道这个 Compose 页面上有哪些按钮。",
+    "should_trigger": false
+  },
+  {
+    "query": "我想用 lldb 打印一个对象的 ivar，memory address 是 0x141175b00。",
+    "should_trigger": false
+  },
+  {
+    "query": "帮我做一张当前 App 首页的自动化回归截图，走 XCUITest 就行。",
+    "should_trigger": false
+  },
+  {
+    "query": "帮我看下这个仓库里 search 和 get_view 的实现逻辑，我要改本地代码。",
+    "should_trigger": false
+  }
+]

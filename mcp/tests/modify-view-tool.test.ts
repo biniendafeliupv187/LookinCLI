@@ -370,9 +370,14 @@ describe('modify_view MCP tool', () => {
 describe('ATTR_WHITELIST', () => {
   it('contains the expected supported attributes', () => {
     expect(Object.keys(ATTR_WHITELIST)).toEqual(
-      expect.arrayContaining(['hidden', 'alpha', 'frame', 'backgroundColor', 'text']),
+      expect.arrayContaining([
+        'hidden', 'alpha', 'frame', 'backgroundColor', 'text',
+        'cornerRadius', 'borderWidth', 'borderColor',
+        'shadowColor', 'shadowOpacity', 'shadowRadius',
+        'shadowOffsetX', 'shadowOffsetY', 'masksToBounds',
+      ]),
     );
-    expect(Object.keys(ATTR_WHITELIST)).toHaveLength(5);
+    expect(Object.keys(ATTR_WHITELIST)).toHaveLength(14);
   });
 
   it('hidden maps to BOOL type with layer target', () => {

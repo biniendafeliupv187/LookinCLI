@@ -1,0 +1,149 @@
+{
+  "skill_name": "lookin",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我看下当前连接上的 iOS App 现在界面层级，先给我一个适合人看的精简树，不用 JSON。",
+      "expected_output": "The skill should trigger and route to get_hierarchy with format text, preferring a readable hierarchy instead of structured JSON.",
+      "files": [],
+      "assertions": [
+        {
+          "id": "calls-get-hierarchy",
+          "text": "调用了 get_hierarchy tool"
+        },
+        {
+          "id": "uses-text-format",
+          "text": "get_hierarchy 使用了 format: \"text\" 而不是 \"json\""
+        },
+        {
+          "id": "no-status-first",
+          "text": "没有先调用 status（用户没有提连接问题）"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "页面上有很多 UIButton，我想先快速定位所有 UIButton，再挑一个继续看它的详细属性。",
+      "expected_output": "The skill should trigger and prefer search first, then use the discovered layerOid for get_view instead of starting with an unrelated tool.",
+      "files": [],
+      "assertions": [
+        {
+          "id": "calls-search-first",
+          "text": "第一个有效 tool 调用是 search（而不是直接拉 get_hierarchy）"
+        },
+        {
+          "id": "search-targets-uibutton",
+          "text": "search 的 query 包含 \"UIButton\""
+        },
+        {
+          "id": "calls-get-view",
+          "text": "后续调用了 get_view 查看某个按钮的详细属性"
+        },
+        {
+          "id": "get-view-uses-layer-oid",
+          "text": "get_view 传入的是 layerOid 对应的 oid 参数值，而不是 view oid"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "我有这个 label 的 layerOid：401，帮我把它的文字改成 Hello World。",
+      "expected_output": "The skill should detect that text modification requires oid not layerOid, reject using the provided layerOid directly, and guide the user to first obtain the correct oid via get_hierarchy or search.",
+      "files": [],
+      "assertions": [
+        {
+          "id": "rejects-layeroid-for-text",
+          "text": "明确指出用户提供的是 layerOid，但修改 text 需要的是 view oid，两者不同"
+        },
+        {
+          "id": "no-blind-modify-with-wrong-id",
+          "text": "没有直接用 layerOid 调用 modify_view 修改 text"
+        },
+        {
+          "id": "suggests-get-oid",
+          "text": "提示用户如何获取正确的 oid（通过 get_hierarchy 或 search）"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "帮我量一下这个按钮和封面图之间的距离，如果它们不在同一个页面坐标系里也请直接说，不要硬算。",
+      "expected_output": "The skill should route to search or hierarchy to find fresh layerOids, then use measure_distance, and explicitly respect the same-root coordinate-system requirement instead of fabricating a distance.",
+      "files": [],
+      "assertions": [
+        {
+          "id": "discovers-layeroids-first",
+          "text": "先通过 search 或 get_hierarchy 获取两个节点的 layerOid"
+        },
+        {
+          "id": "calls-measure-distance",
+          "text": "调用了 measure_distance"
+        },
+        {
+          "id": "mentions-common-root-requirement",
+          "text": "明确提到两个节点需要位于同一个 root coordinate system / window / 页面上下文"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "帮我找出文案里包含“我的”的 UILabel，对应的 memory address 也一起给我，后面我还要继续查它详情。",
+      "expected_output": "The skill should prefer get_memory_address with text or an equivalent text-first route, and return both viewMemoryAddress and a reusable layerOid or explain how to continue to get_view.",
+      "files": [],
+      "assertions": [
+        {
+          "id": "uses-memory-address-tool",
+          "text": "优先使用 get_memory_address（而不是手动让用户自己从 hierarchy 里翻）"
+        },
+        {
+          "id": "uses-text-search-mode",
+          "text": "使用了 text 相关的查询方式，而不是只按 class name 模糊查"
+        },
+        {
+          "id": "returns-followup-identifiers",
+          "text": "回答里除了 viewMemoryAddress 之外，还保留了可继续使用的 layerOid 或 oid 上下文"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Lookin 好像又抽风了，status 说找不到设备，但我只是想继续看按钮详情。你别一上来就说服务没开，先帮我判断是不是瞬时抖动。",
+      "expected_output": "The skill should treat DISCOVERY_NO_DEVICE or TRANSPORT_CLOSED as possibly transient, avoid premature conclusions, and retry or continue with another targeted live command before declaring the environment unavailable.",
+      "files": [],
+      "assertions": [
+        {
+          "id": "does-not-overconclude",
+          "text": "没有在第一次 status 失败后就直接断定 LookinServer 没开"
+        },
+        {
+          "id": "mentions-transient-discovery-instability",
+          "text": "明确提到 DISCOVERY_NO_DEVICE / TRANSPORT_CLOSED 可能是瞬时 discovery 或 transport 抖动"
+        },
+        {
+          "id": "tries-targeted-followup",
+          "text": "会建议或执行一个更贴近目标的后续命令，而不是停在 status"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "这个 UIImageView 先帮我拿原图。如果服务端说没有 image data，也请直接告诉我这个节点不行，再换别的候选图，不要假装成功。",
+      "expected_output": "The skill should use get_image with a layerOid for a UIImageView candidate, and if the server returns no image data it should report that limitation honestly and suggest another UIImageView instead of fabricating success.",
+      "files": [],
+      "assertions": [
+        {
+          "id": "uses-get-image",
+          "text": "调用了 get_image，而不是误用 get_screenshot 代替原图抓取"
+        },
+        {
+          "id": "uses-layeroid-semantics",
+          "text": "把 get_image 的参数理解为 layerOid，而不是 view oid 或 memory address"
+        },
+        {
+          "id": "reports-no-image-data-honestly",
+          "text": "如果服务端返回 No image data returned，会明确说明这是目标节点或服务端数据限制，不会伪造成功结果"
+        }
+      ]
+    }
+  ]
+}

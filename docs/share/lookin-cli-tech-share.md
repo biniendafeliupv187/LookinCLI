@@ -319,7 +319,7 @@ MCP 会话内 CacheManager 是共享单例，第一次 `get_hierarchy` 之后，
 
 ### Skill：减少 AI 的试错
 
-MCP 工具有了，但 Claude 还需要知道"哪种请求用哪个工具、顺序是什么"。`lookin-mcp-router` 是一个 Claude Code Skill，专门解决这两个问题：
+MCP 工具有了，但 Claude 还需要知道"哪种请求用哪个工具、顺序是什么"。`lookin` 是一个 Claude Code Skill，专门解决这两个问题：
 
 **调用顺序问题**。"找不到设备"要先用 `status`；"查某个 View 的属性"应该先 `search` 精确定位再 `get_view`，而不是先 `get_hierarchy` 把整棵树拉下来。没有 Skill 引导，AI 容易走冗余路径。
 

@@ -1,5 +1,5 @@
 ---
-name: lookin-mcp-router
+name: lookin
 description: 当用户想通过 Lookin MCP 或 LookinCLI 检查、定位、理解、截图或运行时修改 iOS App 界面时使用这个 skill。即使用户没有明确说“Lookin”，只要他在问模拟器/真机的 view hierarchy、查找 UIKit/SwiftUI 视图、查看当前页面属于哪个 controller、读取 app 或设备信息、截图某个 view，或在运行时修改 hidden、alpha、frame、backgroundColor、text 等属性，就应该触发。 Use this skill whenever the user wants to inspect, locate, understand, screenshot, or live-modify an iOS app UI through Lookin MCP or LookinCLI, even if they do not explicitly say “Lookin”.
 ---
 

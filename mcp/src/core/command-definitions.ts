@@ -71,6 +71,10 @@ const getViewInputShape = {
     .int()
     .positive()
     .describe('The layer object identifier (layerOid) of the view to inspect. Get layerOid values from get_hierarchy output.'),
+  includeConstraints: z
+    .boolean()
+    .optional()
+    .describe('When true, include Auto Layout constraints in the response.'),
 } satisfies CommandShape;
 
 const modifyViewInputShape = {
@@ -80,11 +84,16 @@ const modifyViewInputShape = {
     .positive()
     .describe('Target object identifier. Use layerOid for hidden/alpha/frame/backgroundColor; use oid (viewOid) for text.'),
   attribute: z
-    .enum(['hidden', 'alpha', 'frame', 'backgroundColor', 'text'])
+    .enum([
+      'hidden', 'alpha', 'frame', 'backgroundColor', 'text',
+      'cornerRadius', 'borderWidth', 'borderColor',
+      'shadowColor', 'shadowOpacity', 'shadowRadius',
+      'shadowOffsetX', 'shadowOffsetY', 'masksToBounds',
+    ])
     .describe('The attribute to modify.'),
   value: z
     .any()
-    .describe('New value. hidden: boolean; alpha: number; frame: [x,y,w,h]; backgroundColor: [r,g,b,a]; text: string.'),
+    .describe('New value. hidden/masksToBounds: boolean; alpha/shadowOpacity/cornerRadius/borderWidth/shadowRadius/shadowOffsetX/shadowOffsetY: number; frame/backgroundColor/borderColor/shadowColor: [r,g,b,a] or [x,y,w,h]; text: string.'),
 } satisfies CommandShape;
 
 function toJsonContent(result: unknown): JsonContent[] {
@@ -111,7 +120,7 @@ export const hierarchyCommand: LookinCommandDefinition<
 > = {
   name: 'get_hierarchy',
   description:
-    'Fetch the iOS view hierarchy from the connected app. Returns app info and a tree of view nodes with class names, frames, visibility, and view controller associations. Use format="text" (default) for a token-efficient indented tree, or format="json" for structured data. maxDepth is optional; if omitted, the full hierarchy is returned.',
+    'Fetch the iOS view hierarchy from the connected app. Returns app info and a tree of view nodes with class names, frames, visibility, view controller associations, and viewMemoryAddress. viewMemoryAddress can be used with lldb-mcp to call ObjC methods at runtime. Use format="text" (default) for a token-efficient indented tree, or format="json" for structured data. maxDepth is optional; if omitted, the full hierarchy is returned.',
   inputShape: hierarchyInputShape,
   execute: async (args, { service }) => service.getHierarchy(args),
   toCliOutput: (result) =>
@@ -132,7 +141,7 @@ export const searchCommand: LookinCommandDefinition<
 > = {
   name: 'search',
   description:
-    'Search the iOS view hierarchy by class name, memory address, or text content. Returns matching nodes with parent context (breadcrumb). Case-insensitive partial matching. Use --text to search text content (slower, as it fetches view attributes).',
+    'Search the iOS view hierarchy by class name, memory address, or text content. Returns matching nodes with parent context (breadcrumb) and viewMemoryAddress. viewMemoryAddress can be used with lldb-mcp to call ObjC methods at runtime. Case-insensitive partial matching. Use --text to search text content (slower, as it fetches view attributes).',
   inputShape: searchInputShape,
   execute: async ({ query, text }, { service }) => service.search(query, text),
   toCliOutput: toCliJson,
@@ -164,14 +173,14 @@ export const reloadCommand: LookinCommandDefinition<
 };
 
 export const getViewCommand: LookinCommandDefinition<
-  { oid: number },
+  { oid: number; includeConstraints?: boolean },
   Record<string, unknown>
 > = {
   name: 'get_view',
   description:
-    'Fetch all attribute groups for a specific view by its layerOid. Returns structured property data including class, frame, visibility, layer settings, and more. Use get_hierarchy first to obtain layerOid values.',
+    'Fetch all attribute groups for a specific view by its layerOid. Returns structured property data including class, frame, visibility, layer settings, memoryAddress, and more. memoryAddress can be used with lldb-mcp to call ObjC methods at runtime. Use get_hierarchy first to obtain layerOid values. Pass includeConstraints: true to include Auto Layout constraints.',
   inputShape: getViewInputShape,
-  execute: async ({ oid }, { service }) => service.getView(oid),
+  execute: async ({ oid, includeConstraints }, { service }) => service.getView(oid, { includeConstraints }),
   toCliOutput: toCliJson,
   toMcpContent: toJsonContent,
 };
@@ -182,7 +191,7 @@ export const getScreenshotCommand: LookinCommandDefinition<
 > = {
   name: 'get_screenshot',
   description:
-    'Capture a screenshot of a specific view by its layerOid. Returns a PNG image (base64) showing how the view renders on screen, including all its subviews. Use get_hierarchy first to discover layerOids.',
+    'Capture a screenshot of a specific view by its layerOid. Returns a PNG image (base64) showing how the view renders on screen, including all its subviews, and also persists the image locally with a savedPath. Use get_hierarchy first to discover layerOids.',
   inputShape: screenshotInputShape,
   execute: async ({ oid }, { service }) => service.getScreenshot(oid),
   toCliOutput: (result) =>
@@ -195,7 +204,7 @@ export const getScreenshotCommand: LookinCommandDefinition<
       2,
     ),
   toMcpContent: (result) => [
-    { type: 'text', text: JSON.stringify(result.metadata) },
+    { type: 'text', text: JSON.stringify({ ...result.metadata, savedPath: result.savedPath }) },
     { type: 'image', data: result.imageBase64, mimeType: 'image/png' },
   ],
 };
@@ -206,7 +215,7 @@ export const modifyViewCommand: LookinCommandDefinition<
 > = {
   name: 'modify_view',
   description:
-    'Modify a view or layer attribute at runtime. Supported attributes: hidden, alpha, frame, backgroundColor, text. For layer properties (hidden, alpha, frame, backgroundColor) pass the layerOid from get_hierarchy. For view properties (text) pass the oid (viewOid) from get_hierarchy. Returns updated attribute groups after modification.',
+    'Modify a view or layer attribute at runtime. Supported attributes: hidden, alpha, frame, backgroundColor, text, cornerRadius, borderWidth, borderColor, shadowColor, shadowOpacity, shadowRadius, shadowOffsetX, shadowOffsetY, masksToBounds. For layer properties pass the layerOid from get_hierarchy. For text pass the view oid from get_hierarchy. Returns updated attribute groups after modification.',
   inputShape: modifyViewInputShape,
   execute: async (args, { service }) => service.modifyView(args),
   toCliOutput: toCliJson,
@@ -225,6 +234,123 @@ export const getAppInfoCommand: LookinCommandDefinition<
   toMcpContent: toJsonContent,
 };
 
+const getMemoryAddressInputShape = {
+  query: z.string().optional().describe('Class name substring to match (e.g. "UIButton").'),
+  text: z.string().optional().describe('Text content substring to match.'),
+  viewOid: z.number().int().positive().optional().describe('Exact viewObject oid to look up.'),
+} satisfies CommandShape;
+
+export const getMemoryAddressCommand: LookinCommandDefinition<
+  { query?: string; text?: string; viewOid?: number },
+  Record<string, unknown>
+> = {
+  name: 'get_memory_address',
+  description:
+    'Look up the runtime memory address of one or more views. Returns viewMemoryAddress (hex string) that can be used with lldb-mcp for ObjC method calls or po expressions. Provide query (class name match), text (text content match), or viewOid (exact view oid). viewMemoryAddress can be passed to lldb-mcp to invoke methods like [view setHidden:YES] at runtime.',
+  inputShape: getMemoryAddressInputShape,
+  execute: async (args, { service }) => service.getMemoryAddress(args),
+  toCliOutput: toCliJson,
+  toMcpContent: toJsonContent,
+};
+
+const measureDistanceInputShape = {
+  layerOidA: z.number().int().positive().describe('layerOid of the first view (from get_hierarchy).'),
+  layerOidB: z.number().int().positive().describe('layerOid of the second view (from get_hierarchy).'),
+} satisfies CommandShape;
+
+export const measureDistanceCommand: LookinCommandDefinition<
+  { layerOidA: number; layerOidB: number },
+  Record<string, unknown>
+> = {
+  name: 'measure_distance',
+  description:
+    'Measure the pixel distance between two views in a common coordinate system. Returns top/bottom/left/right gaps, classA/classB context, and a relationship (separated, overlapping, containing). Use get_hierarchy first to get layerOid values.',
+  inputShape: measureDistanceInputShape,
+  execute: async ({ layerOidA, layerOidB }, { service }) => service.measureDistance(layerOidA, layerOidB),
+  toCliOutput: toCliJson,
+  toMcpContent: toJsonContent,
+};
+
+const getEventHandlersInputShape = {
+  oid: z.number().int().positive().describe('layerOid of the view to inspect (from get_hierarchy).'),
+} satisfies CommandShape;
+
+export const getEventHandlersCommand: LookinCommandDefinition<
+  { oid: number },
+  Record<string, unknown>
+> = {
+  name: 'get_event_handlers',
+  description:
+    'Get all event handlers (UIControl target-actions and gesture recognizers) attached to a view. Returns a list with type, eventName, targetActions, and for gesture entries also recognizerOid, enabled, and delegator. recognizerOid can be used with toggle_gesture to enable or disable a gesture.',
+  inputShape: getEventHandlersInputShape,
+  execute: async ({ oid }, { service }) => service.getEventHandlers(oid),
+  toCliOutput: toCliJson,
+  toMcpContent: toJsonContent,
+};
+
+const getMethodsInputShape = {
+  oid: z.number().int().positive().optional().describe('layerOid to resolve className from hierarchy.'),
+  className: z.string().optional().describe('ObjC class name to query selector list for.'),
+  includeArgs: z.boolean().optional().describe('When true, include selectors that take arguments. Default: false.'),
+} satisfies CommandShape;
+
+export const getMethodsCommand: LookinCommandDefinition<
+  { oid?: number; className?: string; includeArgs?: boolean },
+  Record<string, unknown>
+> = {
+  name: 'get_methods',
+  description:
+    'List Objective-C method selectors for a view class. Provide either a layerOid (class resolved from hierarchy) or a className directly. Returns a flat methods list plus methodsByClass grouped output. By default only parameterless selectors are returned; pass includeArgs: true to include selectors with colons.',
+  inputShape: getMethodsInputShape,
+  execute: async (args, { service }) => service.getMethods(args),
+  toCliOutput: toCliJson,
+  toMcpContent: toJsonContent,
+};
+
+const getImageInputShape = {
+  oid: z.number().int().positive().describe('layerOid of the UIImageView to fetch image from.'),
+} satisfies CommandShape;
+
+export const getImageCommand: LookinCommandDefinition<
+  { oid: number },
+  Record<string, unknown>
+> = {
+  name: 'get_image',
+  description:
+    'Fetch the original image content from a UIImageView by its layerOid. Returns base64-encoded PNG image data, imageSize metadata, and a savedPath under ~/LookinCLI/screenshots/. Returns a descriptive error if the target is not a UIImageView.',
+  inputShape: getImageInputShape,
+  execute: async ({ oid }, { service }) => service.getImage(oid),
+  toCliOutput: toCliJson,
+  toMcpContent: (result) => {
+    const content: CommandContent[] = [];
+    if (result.savedPath) {
+      content.push({ type: 'text', text: JSON.stringify({ savedPath: result.savedPath, imageSize: result.imageSize }) });
+    }
+    if (result.imageBase64 && typeof result.imageBase64 === 'string') {
+      content.push({ type: 'image', data: result.imageBase64, mimeType: 'image/png' });
+    }
+    return content;
+  },
+};
+
+const toggleGestureInputShape = {
+  recognizerOid: z.number().int().describe('The recognizerOid from get_event_handlers.'),
+  enabled: z.boolean().describe('Whether to enable (true) or disable (false) the gesture recognizer.'),
+} satisfies CommandShape;
+
+export const toggleGestureCommand: LookinCommandDefinition<
+  { recognizerOid: number; enabled: boolean },
+  Record<string, unknown>
+> = {
+  name: 'toggle_gesture',
+  description:
+    'Enable or disable a gesture recognizer at runtime. Use get_event_handlers to discover recognizerOid values. Returns a confirmation including enabled and gestureType when available.',
+  inputShape: toggleGestureInputShape,
+  execute: async (args, { service }) => service.toggleGesture(args),
+  toCliOutput: toCliJson,
+  toMcpContent: toJsonContent,
+};
+
 export const LOOKIN_COMMAND_DEFINITIONS: ReadonlyArray<
   LookinCommandDefinition<any, any>
 > = [
@@ -237,6 +363,12 @@ export const LOOKIN_COMMAND_DEFINITIONS: ReadonlyArray<
   getScreenshotCommand,
   modifyViewCommand,
   getAppInfoCommand,
+  getMemoryAddressCommand,
+  measureDistanceCommand,
+  getEventHandlersCommand,
+  getMethodsCommand,
+  getImageCommand,
+  toggleGestureCommand,
 ] as const;
 
 export function getCommandDefinition(

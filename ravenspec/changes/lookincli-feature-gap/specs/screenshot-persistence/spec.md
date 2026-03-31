@@ -1,0 +1,24 @@
+## ADDED Requirements
+
+### Requirement: Automatic screenshot persistence
+The system SHALL automatically save a PNG file to local disk on every `get_screenshot` call, without requiring any additional parameters.
+
+#### Scenario: Screenshot saved on every call
+- **WHEN** the caller invokes `get_screenshot(oid)`
+- **THEN** the system writes a PNG file to `~/LookinCLI/screenshots/` in addition to returning the MCP image block
+
+#### Scenario: Saved file path returned
+- **WHEN** `get_screenshot` succeeds
+- **THEN** the response includes a `savedPath` field with the absolute path to the saved PNG file
+
+#### Scenario: File naming convention
+- **WHEN** a screenshot is saved
+- **THEN** the filename follows the pattern `{YYYYMMdd_HHmmss}_{className}.png` (e.g., `20260331_143022_UIButton.png`)
+
+#### Scenario: Directory auto-created
+- **WHEN** `~/LookinCLI/screenshots/` does not exist at the time of the call
+- **THEN** the system creates the directory before writing the file
+
+#### Scenario: MCP image block behavior unchanged
+- **WHEN** `get_screenshot` returns a result
+- **THEN** the MCP `image` block is still present and unmodified, allowing AI Agent visual analysis to continue working as before

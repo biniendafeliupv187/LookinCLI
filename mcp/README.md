@@ -1,6 +1,7 @@
 # Lookin CLI / Lookin MCP
 
 基于 [LookinServer](https://lookin.work/) 的命令行与 MCP 工具集，用来在没有桌面 GUI 的情况下读取、定位、截图、测距、读取运行时信息，以及临时修改 iOS App 的界面信息。
+适合 CLI、脚本和 MCP 客户端联调用于真实界面调试。
 
 当前包提供两个入口：
 

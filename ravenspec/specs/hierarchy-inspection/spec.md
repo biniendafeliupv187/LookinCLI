@@ -1,7 +1,11 @@
-## ADDED Requirements
+## Purpose
+
+Define the main hierarchy retrieval and search capabilities exposed by LookinCLI, including token-efficient hierarchy output, search, controller listing, and refresh behavior.
+
+## Requirements
 
 ### Requirement: Hierarchy retrieval
-The system SHALL provide a `get_hierarchy` capability that returns the current UI hierarchy for a selected app as a structured tree of inspectable nodes.
+The system SHALL provide a `get_hierarchy` capability that returns the current UI hierarchy for a selected app as a structured tree of inspectable nodes. JSON format nodes SHALL include `viewMemoryAddress`. Text format nodes SHALL include ivar trace annotations when available.
 
 #### Scenario: Retrieve hierarchy tree
 - **WHEN** the caller requests hierarchy for a connected app
@@ -10,14 +14,18 @@ The system SHALL provide a `get_hierarchy` capability that returns the current U
 #### Scenario: Retrieve hierarchy in text format (default)
 - **WHEN** the caller requests hierarchy without specifying `format`, or with `format: "text"`
 - **THEN** the system returns an indented text tree with one line per node
-- **AND** each line has the form `{indent}{className} ({x},{y},{width},{height}) oid={oid}[ [KeyWindow]][ (hidden)][ alpha={n}][ <ViewControllerClass>]`
+- **AND** each line has the form `{indent}{className} ({x},{y},{width},{height}) oid={oid}[ [KeyWindow]][ (hidden)][ alpha={n}][ <ViewControllerClass>][ [OwnerClass._ivarName]]`
 - **AND** the first line is a metadata header: `App: {appName} ({bundleId}) | Device: {deviceDescription} {osDescription}`
 - **AND** token cost is approximately 62% lower than the equivalent JSON output
 
 #### Scenario: Retrieve hierarchy in JSON format
 - **WHEN** the caller requests hierarchy with `format: "json"`
 - **THEN** the system returns a JSON object `{ appInfo, serverVersion, viewHierarchy }` where `viewHierarchy` is a nested array of `ViewNode` objects
-- **AND** each `ViewNode` has: `oid`, `className`, `frame {x,y,width,height}`, `isHidden`, `alpha`, optional `isKeyWindow`, optional `viewController`, optional `subitems`
+- **AND** each `ViewNode` has: `oid`, `layerOid`, `className`, `frame {x,y,width,height}`, `isHidden`, `alpha`, `viewMemoryAddress`, optional `isKeyWindow`, optional `viewController`, optional `subitems`
+
+#### Scenario: viewMemoryAddress is null for layer-only nodes
+- **WHEN** `get_hierarchy(format: "json")` returns a node that has no associated view object
+- **THEN** `viewMemoryAddress` is `null` for that node
 
 #### Scenario: Limit tree depth with maxDepth
 - **WHEN** the caller requests hierarchy with `maxDepth: N`
@@ -36,11 +44,15 @@ The system documentation SHALL advise callers on token-efficient usage:
 - The combination `format: "text", maxDepth: 10` reduces a 21 K-token full JSON response to approximately 2.8 K tokens
 
 ### Requirement: Hierarchy search
-The system SHALL provide a `search` capability that searches the current hierarchy by class name, display text, or other indexed node metadata.
+The system SHALL provide a `search` capability that searches the current hierarchy by class name, display text, or other indexed node metadata. Search results SHALL include `viewMemoryAddress`.
 
 #### Scenario: Search for a button by class name
 - **WHEN** the caller searches for nodes with class name `UIButton`
 - **THEN** the system returns matching nodes with enough context to locate them in the hierarchy
+
+#### Scenario: Search result includes memory address
+- **WHEN** `search` returns results
+- **THEN** each result entry includes `viewMemoryAddress` as a hex string or `null`
 
 ### Requirement: View controller listing
 The system SHALL provide a `list_view_controllers` capability that returns the view controllers represented in the current hierarchy.

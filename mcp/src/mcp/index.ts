@@ -19,7 +19,7 @@ import { registerGetImageTool } from './get-image-tool.js';
 import { registerToggleGestureTool } from './toggle-gesture-tool.js';
 
 const server = new McpServer(
-  { name: 'lookin-mcp', version: '0.1.8' },
+  { name: 'lookin-mcp', version: '0.1.11' },
   { capabilities: { tools: {} } },
 );
 
